@@ -7,3 +7,15 @@ protobuf
 pandas 
 seaborn
 umap-learn
+numpy<2.0
+plotly
+statsmodels
+pickleshare
+beautifulsoup4
+bleach
+defusedxml
+jupyterlab-pygments
+mistune
+nbclient
+nbformat
+pandocfilters
