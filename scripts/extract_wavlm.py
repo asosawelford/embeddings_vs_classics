@@ -124,7 +124,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model_name",
         type=str,
-        default="microsoft/wavlm-base",
+        default="microsoft/wavlm-base-plus",
         help="Name of the WavLM model from the Hugging Face Hub."
     )
     
