@@ -4,3 +4,6 @@ librosa
 numpy
 tqdm
 protobuf
+pandas 
+seaborn
+umap-learn
