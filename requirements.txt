@@ -1,5 +1,4 @@
-torch
-transformers
+#torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121transformers
 librosa
 numpy
 tqdm

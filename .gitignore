@@ -203,4 +203,5 @@ __marimo__/
 .streamlit/secrets.toml
 
 # my_data
-/wavlm_base_embeddings
+features
+metadata
