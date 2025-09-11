@@ -18,10 +18,11 @@ def collate_fn(batch, fixed_clinical_len=None):
     if not batch:
         return None
 
+    record_ids = [item['record_id'] for item in batch]
     labels = torch.stack([item['label'] for item in batch])
-    
-    batched_dict = {'label': labels}
-    
+
+    batched_dict = {'label': labels, 'record_id': record_ids}
+
     has_clinical = 'clinical_feats' in batch[0]
     has_embedding = 'embedding_feats' in batch[0]
 
@@ -96,7 +97,7 @@ class PatientTaskDataset(Dataset):
     def __getitem__(self, idx):
         record_id, task_name, diagnosis = self.samples[idx]
         label = torch.tensor(self.labels_map[diagnosis], dtype=torch.long)
-        data_dict = {'label': label}
+        data_dict = {'label': label, 'record_id': record_id}
 
         # --- Clinical Feature Loading, Imputation, and SCALING ---
         if self.mode in ['clinical', 'fusion']:

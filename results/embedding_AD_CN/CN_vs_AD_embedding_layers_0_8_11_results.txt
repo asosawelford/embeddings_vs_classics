@@ -1,0 +1,19 @@
+
+--- Patient-Level Test Set Results (CN vs AD) ---
+Test Accuracy: 0.7474
+Test UAR (Balanced Accuracy): 0.7482
+
+Classification Report:
+              precision    recall  f1-score   support
+
+          CN       0.71      0.83      0.76        47
+          AD       0.80      0.67      0.73        48
+
+    accuracy                           0.75        95
+   macro avg       0.75      0.75      0.75        95
+weighted avg       0.76      0.75      0.75        95
+
+
+Confusion Matrix:
+[[39  8]
+ [16 32]]

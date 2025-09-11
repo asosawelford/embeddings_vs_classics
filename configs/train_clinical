@@ -1,0 +1,18 @@
+python src/train.py \
+    --train_meta data/metadata/train_metadata.csv \
+    --val_meta data/metadata/validation_metadata.csv \
+    --test_meta data/metadata/test_metadata.csv \
+    --pitch_csv data/features/explainable/pitch_features.csv \
+    --timing_csv data/features/explainable/timing_features.csv \
+    --embedding_path data/features/embeddings/wavlm-base-plus \
+    --imputation_means data/features/imputation_means.json \
+    --scaling_params data/features/scaling_params.json \
+    --hidden_size 256 \
+    --save_path models/best_cn_vs_ad_clinical_model.pth \
+    --results_dir results/clinical_AD_CN \
+    --plots_dir plots/clinical_AD_CN \
+    --classes CN AD \
+    --mode clinical \
+    --epochs 30 \
+    --batch_size 32 \
+    --lr 0.0001

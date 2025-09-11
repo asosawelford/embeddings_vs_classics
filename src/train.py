@@ -13,9 +13,7 @@ import io
 
 # Import our custom modules
 from dataloader import PatientTaskDataset, collate_fn
-from models import ExplainableMLP
-# We will add EmbeddingMLP and FusionANN here later
-# from models import EmbeddingMLP, FusionANN
+from models import ExplainableMLP, EmbeddingMLP
 
 # Import metrics
 from sklearn.metrics import accuracy_score, balanced_accuracy_score, classification_report, confusion_matrix
@@ -74,6 +72,10 @@ def main(args):
 
     # Determine experiment name for saving files
     experiment_name = f"{args.classes[0]}_vs_{args.classes[1]}_{args.mode}"
+    # Append embedding layers if mode is embedding or fusion, for specific save path
+    if args.mode in ['embedding', 'fusion']:
+        experiment_name += f"_layers_{'_'.join(map(str, args.embedding_layers))}"
+
     print(f"Starting experiment: {experiment_name}")
 
     # Create output directories
@@ -109,8 +111,8 @@ def main(args):
     collate_function = None # Initialize
     
     if args.mode == 'clinical':
-        input_size = get_clinical_input_size(args.scaling_params) # <--- Using improved function
-        print(f"Determined clinical feature input size from scaling params: {input_size}")
+        input_size = get_clinical_input_size(args.scaling_params)
+        print(f"Clinical feature input size: {input_size}")
         
         model = ExplainableMLP(
             input_size=input_size, 
@@ -120,11 +122,19 @@ def main(args):
 
         collate_function = functools.partial(collate_fn, fixed_clinical_len=input_size)
     
-    # Placeholder for future models
-    # elif args.mode == 'embedding':
-    #     embedding_feature_dim = len(args.embedding_layers) * 768
-    #     model = EmbeddingMLP(input_size=embedding_feature_dim, ...).to(device)
-    #     collate_function = functools.partial(collate_fn, fixed_clinical_len=None) # No clinical padding needed
+    elif args.mode == 'embedding': # <--- NEW MODE HANDLING
+        embedding_input_size = len(args.embedding_layers) * 768
+        print(f"Embedding feature input size: {embedding_input_size}")
+        
+        model = EmbeddingMLP( # Using the new EmbeddingMLP
+            input_size=embedding_input_size, 
+            hidden_size=args.hidden_size, # Reusing same hidden_size for now, you can add new arg
+            dropout_rate=args.dropout
+        ).to(device)
+
+        collate_function = functools.partial(collate_fn, fixed_clinical_len=None) # No clinical features, so no fixed_clinical_len
+    
+    # Placeholder for fusion (will use both)
     # elif args.mode == 'fusion':
     #     clinical_input_size_for_fusion = get_clinical_input_size(args.scaling_params)
     #     embedding_feature_dim_for_fusion = len(args.embedding_layers) * 768
@@ -133,7 +143,7 @@ def main(args):
     #     collate_function = functools.partial(collate_fn, fixed_clinical_len=clinical_input_size_for_fusion)
 
     else:
-        raise ValueError(f"Mode '{args.mode}' not recognized.")
+        raise ValueError(f"Mode '{args.mode}' not recognized or not implemented yet.")
         
     print(model)
 
@@ -161,13 +171,15 @@ def main(args):
             # Correctly handle features based on mode
             if args.mode == 'clinical':
                 features = batch['clinical_feats'].to(device)
-            # Add conditions for 'embedding' and 'fusion' later
-            # elif args.mode == 'embedding':
-            #     features = batch['embedding_feats'].to(device)
+            elif args.mode == 'embedding':
+                features = batch['embedding_feats'].to(device)
+            # Add conditions for 'fusion' later:
             # elif args.mode == 'fusion':
             #     features_clinical = batch['clinical_feats'].to(device)
             #     features_embedding = batch['embedding_feats'].to(device)
             #     # Pass both to model(features_clinical, features_embedding)
+            
+            labels = batch['label'].to(device)
             
             labels = batch['label'].to(device)
 
@@ -197,9 +209,9 @@ def main(args):
                 # Correctly handle features based on mode
                 if args.mode == 'clinical':
                     features = batch['clinical_feats'].to(device)
-                # Add conditions for 'embedding' and 'fusion' later
-                # elif args.mode == 'embedding':
-                #     features = batch['embedding_feats'].to(device)
+                elif args.mode == 'embedding':
+                    features = batch['embedding_feats'].to(device)
+                # Add conditions for 'fusion' later:
                 # elif args.mode == 'fusion':
                 #     features_clinical = batch['clinical_feats'].to(device)
                 #     features_embedding = batch['embedding_feats'].to(device)
@@ -274,13 +286,13 @@ def main(args):
     with torch.no_grad():
         for i, batch in tqdm(enumerate(test_loader), total=len(test_loader), desc="Test Set Inference"):
             if batch is None: continue
-
+            batch_patient_ids = batch['record_id']
             # Correctly handle features based on mode
             if args.mode == 'clinical':
                 features = batch['clinical_feats'].to(device)
-            # Add conditions for 'embedding' and 'fusion' later
-            # elif args.mode == 'embedding':
-            #     features = batch['embedding_feats'].to(device)
+            elif args.mode == 'embedding':
+                features = batch['embedding_feats'].to(device)
+            # Add conditions for 'fusion' later:
             # elif args.mode == 'fusion':
             #     features_clinical = batch['clinical_feats'].to(device)
             #     features_embedding = batch['embedding_feats'].to(device)
@@ -290,16 +302,14 @@ def main(args):
             
             outputs = model(features)
             probabilities = torch.sigmoid(outputs).squeeze().detach().cpu().numpy()
-            
+
+            # If batch size is 1, probabilities might not be an iterable array
+            if probabilities.ndim == 0:
+                probabilities = [probabilities.item()]
+
             task_preds_proba.extend(probabilities)
             task_true_labels.extend(labels.cpu().numpy())
-            
-            # Get corresponding record_ids for this batch
-            # Correctly map batch indices to dataset indices
-            start_idx = i * args.batch_size
-            end_idx = min((i + 1) * args.batch_size, len(test_dataset))
-            batch_patient_ids = [test_dataset.samples[idx][0] for idx in range(start_idx, end_idx)]
-            task_patient_ids.extend(batch_patient_ids)
+            task_patient_ids.extend(batch_patient_ids) # Extend with IDs from batch
 
     # 7.4. Aggregate Predictions at Patient Level
     print("\nAggregating predictions at patient level...")
@@ -365,9 +375,9 @@ if __name__ == '__main__':
     parser.add_argument('--embedding_path', type=str, required=True, help='Path to embedding folder')
     parser.add_argument('--imputation_means', type=str, required=True, help='Path to imputation_means.json')
     parser.add_argument('--scaling_params', type=str, required=True, help='Path to scaling_params.json')
-    parser.add_argument('--save_path', type=str, default='best_model.pth', help='Path to save the best model (e.g., best_cn_vs_ad_clinical_model.pth)')
-    parser.add_argument('--results_dir', type=str, default='results', help='Directory to save text results and epoch metrics') # <--- NEW ARG
-    parser.add_argument('--plots_dir', type=str, default='plots', help='Directory to save plots') # <--- NEW ARG
+    parser.add_argument('--save_path', type=str, default='_dynamic_path', help='Path to save the best model (will be constructed based on experiment name and results_dir)')
+    parser.add_argument('--results_dir', type=str, default='results', help='Directory to save text results and epoch metrics') 
+    parser.add_argument('--plots_dir', type=str, default='plots', help='Directory to save plots') 
 
     # --- Task and Model ---
     parser.add_argument('--classes', nargs='+', required=True, help="List of two classes for binary task (e.g., CN AD)")
