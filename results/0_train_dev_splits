@@ -1,0 +1,112 @@
+--- Original Data Info ---
+Total number of patients: 714
+
+Original Diagnosis Distribution:
+clinical_diagnosis
+AD     0.333333
+CN     0.333333
+FTD    0.333333
+Name: proportion, dtype: float64
+
+Original Site Distribution:
+site
+Custodio      0.334734
+Lopera        0.214286
+Matallana     0.210084
+Avila         0.096639
+Slachevsky    0.085434
+Bruno         0.037815
+Behrens       0.021008
+Name: proportion, dtype: float64
+
+==================================================
+
+--- Combination Key Counts ---
+stratify_key
+FTD_Matallana     86
+CN_Custodio       80
+FTD_Custodio      80
+AD_Custodio       79
+AD_Lopera         76
+CN_Lopera         62
+CN_Matallana      39
+AD_Matallana      25
+AD_Slachevsky     24
+FTD_Avila         23
+AD_Avila          23
+FTD_Slachevsky    23
+CN_Avila          23
+FTD_Lopera        15
+CN_Slachevsky     14
+CN_Behrens        11
+AD_Bruno           9
+CN_Bruno           9
+FTD_Bruno          9
+AD_Behrens         2
+FTD_Behrens        2
+Name: count, dtype: int64
+
+==================================================
+
+--- Verification of Splits ---
+Total patients in sets: 714 (should match total)
+Training patients:   428
+Validation patients: 143
+Test patients:       143
+
+--- Diagnosis Distribution ---
+Train Set Diagnosis Distribution:
+clinical_diagnosis
+AD     0.331776
+CN     0.331776
+FTD    0.336449
+Name: proportion, dtype: float64
+
+Validation Set Diagnosis Distribution:
+clinical_diagnosis
+AD     0.335664
+CN     0.342657
+FTD    0.321678
+Name: proportion, dtype: float64
+
+Test Set Diagnosis Distribution:
+clinical_diagnosis
+AD     0.335664
+CN     0.328671
+FTD    0.335664
+Name: proportion, dtype: float64
+
+==================================================
+
+--- Site Distribution ---
+Train Set Site Distribution:
+site
+Avila         0.095794
+Behrens       0.025701
+Bruno         0.035047
+Custodio      0.334112
+Lopera        0.214953
+Matallana     0.210280
+Slachevsky    0.084112
+Name: proportion, dtype: float64
+
+Validation Set Site Distribution:
+site
+Avila         0.097902
+Behrens       0.013986
+Bruno         0.041958
+Custodio      0.335664
+Lopera        0.216783
+Matallana     0.209790
+Slachevsky    0.083916
+Name: proportion, dtype: float64
+
+Test Set Site Distribution:
+site
+Avila         0.097902
+Behrens       0.013986
+Bruno         0.041958
+Custodio      0.335664
+Lopera        0.209790
+Matallana     0.209790
+Slachevsky    0.090909

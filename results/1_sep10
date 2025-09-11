@@ -1,0 +1,68 @@
+Train Loss: 0.6314, Train UAR: 0.6350 | Val Loss: 0.6176, Val UAR: 0.6474
+
+
+--- Patient-Level Test Set Results (CN vs AD) ---
+Test Accuracy: 0.7218
+Test UAR (Balanced Accuracy): 0.7218
+
+Classification Report:
+              precision    recall  f1-score   support
+
+          CN       0.70      0.77      0.74       142
+          AD       0.75      0.67      0.71       142
+
+    accuracy                           0.72       284
+   macro avg       0.72      0.72      0.72       284
+weighted avg       0.72      0.72      0.72       284
+
+
+Confusion Matrix:
+[[110  32]
+ [ 47  95]]
+
+------------------------------------------------------------------------------------
+
+Train Loss: 0.6295, Train UAR: 0.6360 | Val Loss: 0.6276, Val UAR: 0.6468
+--- Patient-Level Test Set Results (CN vs FTD) ---
+Test Accuracy: 0.7378
+Test UAR (Balanced Accuracy): 0.7379
+
+Classification Report:
+              precision    recall  f1-score   support
+
+          CN       0.72      0.76      0.74       142
+         FTD       0.75      0.72      0.73       144
+
+    accuracy                           0.74       286
+   macro avg       0.74      0.74      0.74       286
+weighted avg       0.74      0.74      0.74       286
+
+
+Confusion Matrix:
+[[108  34]
+ [ 41 103]]
+
+
+------------------------------------------------------------------------------------
+Train Loss: 0.6932, Train UAR: 0.5066 | Val Loss: 0.6909, Val UAR: 0.5259
+
+Aggregating predictions at patient level...
+
+--- Patient-Level Test Set Results (AD vs FTD) ---
+Test Accuracy: 0.5629
+Test UAR (Balanced Accuracy): 0.5602
+
+Classification Report:
+              precision    recall  f1-score   support
+
+          AD       0.77      0.17      0.28       142
+         FTD       0.54      0.95      0.69       144
+
+    accuracy                           0.56       286
+   macro avg       0.66      0.56      0.48       286
+weighted avg       0.65      0.56      0.48       286
+
+
+Confusion Matrix:
+[[ 24 118]
+ [  7 137]]

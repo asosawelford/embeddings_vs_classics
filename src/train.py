@@ -2,11 +2,14 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 import pandas as pd
-import numpy as np
 import argparse
 from tqdm import tqdm
 import functools
 import warnings
+import os
+import json
+import matplotlib.pyplot as plt
+import io
 
 # Import our custom modules
 from dataloader import PatientTaskDataset, collate_fn
@@ -17,31 +20,48 @@ from models import ExplainableMLP
 # Import metrics
 from sklearn.metrics import accuracy_score, balanced_accuracy_score, classification_report, confusion_matrix
 
-def get_clinical_input_size(dataset):
-    # ... (this function remains the same) ...
-    max_len = 0
-    # Create a temporary dataset instance without trying to load all data initially
-    # to avoid unnecessary memory usage and only get a single sample.
-    # This might require a temporary change to PatientTaskDataset if it's too aggressive.
-    # For now, let's assume it works.
-    
-    # A safer way to get the max length without loading everything for real:
-    # If you know your features are consistent across files, you can just
-    # load one patient's data for one task and get its length.
-    
-    # Alternatively, the scaling_params.json already contains 'feature_dim'
-    # which IS the max length determined from the training set.
-    # So, we can directly read that.
-    
-    # For now, we'll keep iterating, as it's already implemented and working.
-    # If performance becomes an issue, we can optimize by reading from scaling_params.json
-    for i in range(len(dataset)):
-        sample = dataset[i]
-        if sample and 'clinical_feats' in sample:
-            current_len = len(sample['clinical_feats'])
-            if current_len > max_len:
-                max_len = current_len
-    return max_len
+# Optimized get_clinical_input_size to read from scaling_params.json
+def get_clinical_input_size(scaling_params_path):
+    with open(scaling_params_path, 'r') as f:
+        scaling_data = json.load(f)
+    return scaling_data['feature_dim']
+
+
+def plot_metrics(epoch_metrics, plot_dir, experiment_name):
+    """Plots training and validation loss/UAR over epochs."""
+    epochs = [m['epoch'] for m in epoch_metrics]
+    train_losses = [m['train_loss'] for m in epoch_metrics]
+    val_losses = [m['val_loss'] for m in epoch_metrics]
+    train_uars = [m['train_uar'] for m in epoch_metrics]
+    val_uars = [m['val_uar'] for m in epoch_metrics]
+
+    os.makedirs(plot_dir, exist_ok=True)
+
+    # Plot Loss
+    plt.figure(figsize=(10, 6))
+    plt.plot(epochs, train_losses, label='Train Loss')
+    plt.plot(epochs, val_losses, label='Validation Loss')
+    plt.title(f'{experiment_name} - Loss Over Epochs')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(os.path.join(plot_dir, f'{experiment_name}_loss.png'))
+    plt.close()
+
+    # Plot UAR
+    plt.figure(figsize=(10, 6))
+    plt.plot(epochs, train_uars, label='Train UAR')
+    plt.plot(epochs, val_uars, label='Validation UAR')
+    plt.title(f'{experiment_name} - UAR Over Epochs')
+    plt.xlabel('Epoch')
+    plt.ylabel('UAR')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(os.path.join(plot_dir, f'{experiment_name}_uar.png'))
+    plt.close()
+
+    print(f"✅ Plots saved to {plot_dir}")
 
 
 def main(args):
@@ -52,9 +72,16 @@ def main(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
+    # Determine experiment name for saving files
+    experiment_name = f"{args.classes[0]}_vs_{args.classes[1]}_{args.mode}"
+    print(f"Starting experiment: {experiment_name}")
+
+    # Create output directories
+    os.makedirs(args.results_dir, exist_ok=True)
+    os.makedirs(args.plots_dir, exist_ok=True)
+
     # 2. Setup Datasets
     print("Setting up datasets...")
-    # These datasets are used for model training and validation
     train_dataset = PatientTaskDataset(
         metadata_path=args.train_meta,
         clinical_feature_paths=args.clinical_paths,
@@ -80,11 +107,10 @@ def main(args):
     # 3. Setup Model
     print(f"Setting up model for mode: {args.mode}")
     collate_function = None # Initialize
-    input_size = None 
     
     if args.mode == 'clinical':
-        input_size = get_clinical_input_size(train_dataset) # Get max length from training data
-        print(f"Determined max clinical feature length (model input size): {input_size}")
+        input_size = get_clinical_input_size(args.scaling_params) # <--- Using improved function
+        print(f"Determined clinical feature input size from scaling params: {input_size}")
         
         model = ExplainableMLP(
             input_size=input_size, 
@@ -100,8 +126,7 @@ def main(args):
     #     model = EmbeddingMLP(input_size=embedding_feature_dim, ...).to(device)
     #     collate_function = functools.partial(collate_fn, fixed_clinical_len=None) # No clinical padding needed
     # elif args.mode == 'fusion':
-    #     # Need both clinical_input_size and embedding_feature_dim
-    #     clinical_input_size_for_fusion = get_clinical_input_size(train_dataset)
+    #     clinical_input_size_for_fusion = get_clinical_input_size(args.scaling_params)
     #     embedding_feature_dim_for_fusion = len(args.embedding_layers) * 768
     #     model = FusionANN(clinical_input_size=clinical_input_size_for_fusion, 
     #                       embedding_input_size=embedding_feature_dim_for_fusion, ...).to(device)
@@ -122,6 +147,8 @@ def main(args):
 
     # 6. Training Loop
     best_val_uar = 0.0
+    epoch_metrics = [] # <--- NEW: List to store metrics per epoch
+
     for epoch in range(args.epochs):
         # --- Training Phase ---
         model.train()
@@ -129,9 +156,19 @@ def main(args):
         train_preds, train_labels = [], []
         
         for batch in tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs} [Train]"):
-            if batch is None: continue # Skip if batch is empty
+            if batch is None: continue 
             
-            features = batch['clinical_feats'].to(device)
+            # Correctly handle features based on mode
+            if args.mode == 'clinical':
+                features = batch['clinical_feats'].to(device)
+            # Add conditions for 'embedding' and 'fusion' later
+            # elif args.mode == 'embedding':
+            #     features = batch['embedding_feats'].to(device)
+            # elif args.mode == 'fusion':
+            #     features_clinical = batch['clinical_feats'].to(device)
+            #     features_embedding = batch['embedding_feats'].to(device)
+            #     # Pass both to model(features_clinical, features_embedding)
+            
             labels = batch['label'].to(device)
 
             optimizer.zero_grad()
@@ -157,7 +194,17 @@ def main(args):
             for batch in tqdm(val_loader, desc=f"Epoch {epoch+1}/{args.epochs} [Val]"):
                 if batch is None: continue
 
-                features = batch['clinical_feats'].to(device)
+                # Correctly handle features based on mode
+                if args.mode == 'clinical':
+                    features = batch['clinical_feats'].to(device)
+                # Add conditions for 'embedding' and 'fusion' later
+                # elif args.mode == 'embedding':
+                #     features = batch['embedding_feats'].to(device)
+                # elif args.mode == 'fusion':
+                #     features_clinical = batch['clinical_feats'].to(device)
+                #     features_embedding = batch['embedding_feats'].to(device)
+                #     # Pass both to model(features_clinical, features_embedding)
+                
                 labels = batch['label'].to(device)
                 
                 outputs = model(features)
@@ -174,19 +221,37 @@ def main(args):
         print(f"Epoch {epoch+1}: Train Loss: {train_loss/len(train_loader):.4f}, Train UAR: {train_uar:.4f} | "
               f"Val Loss: {val_loss/len(val_loader):.4f}, Val UAR: {val_uar:.4f}")
 
+        # Store epoch metrics
+        epoch_metrics.append({
+            'epoch': epoch + 1,
+            'train_loss': train_loss / len(train_loader),
+            'train_uar': train_uar,
+            'val_loss': val_loss / len(val_loader),
+            'val_uar': val_uar
+        })
+
         if val_uar > best_val_uar:
             best_val_uar = val_uar
             torch.save(model.state_dict(), args.save_path)
             print(f"✨ New best model saved with Val UAR: {best_val_uar:.4f} ✨")
 
     print("\nTraining finished.")
+    
+    # Save epoch metrics to CSV
+    metrics_df = pd.DataFrame(epoch_metrics)
+    metrics_csv_path = os.path.join(args.results_dir, f'{experiment_name}_epoch_metrics.csv')
+    metrics_df.to_csv(metrics_csv_path, index=False)
+    print(f"✅ Epoch metrics saved to {metrics_csv_path}")
+
+    # Plot metrics
+    plot_metrics(epoch_metrics, args.plots_dir, experiment_name)
+
 
     # --- 7. Final Evaluation on Test Set (Patient-Level Aggregation) ---
     print("\n--- Evaluating on Test Set ---")
     
-    # 7.1. Setup Test Dataset and DataLoader
     test_dataset = PatientTaskDataset(
-        metadata_path=args.test_meta, # <--- NEW: Using test_meta
+        metadata_path=args.test_meta, 
         clinical_feature_paths=args.clinical_paths,
         embedding_path=args.embedding_path,
         mode=args.mode,
@@ -197,32 +262,43 @@ def main(args):
     )
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, collate_fn=collate_function)
 
-    # 7.2. Load Best Model
+    # Load Best Model
     model.load_state_dict(torch.load(args.save_path))
     model.eval() # Set to evaluation mode
 
-    # 7.3. Collect Predictions per Task-Sample
-    task_preds_proba = [] # Store probabilities
-    task_true_labels = [] # Store true labels for each task-sample
-    task_patient_ids = [] # Store patient IDs for each task-sample
+    # Collect Predictions per Task-Sample
+    task_preds_proba = [] 
+    task_true_labels = [] 
+    task_patient_ids = [] 
 
     with torch.no_grad():
         for i, batch in tqdm(enumerate(test_loader), total=len(test_loader), desc="Test Set Inference"):
             if batch is None: continue
 
-            features = batch['clinical_feats'].to(device)
+            # Correctly handle features based on mode
+            if args.mode == 'clinical':
+                features = batch['clinical_feats'].to(device)
+            # Add conditions for 'embedding' and 'fusion' later
+            # elif args.mode == 'embedding':
+            #     features = batch['embedding_feats'].to(device)
+            # elif args.mode == 'fusion':
+            #     features_clinical = batch['clinical_feats'].to(device)
+            #     features_embedding = batch['embedding_feats'].to(device)
+            #     # Pass both to model(features_clinical, features_embedding)
+            
             labels = batch['label'].to(device)
             
             outputs = model(features)
-            # Apply sigmoid to get probabilities for binary classification
             probabilities = torch.sigmoid(outputs).squeeze().detach().cpu().numpy()
             
             task_preds_proba.extend(probabilities)
             task_true_labels.extend(labels.cpu().numpy())
             
             # Get corresponding record_ids for this batch
-            # We need to map batch index back to sample index in test_dataset
-            batch_patient_ids = [test_dataset.samples[idx][0] for idx in range(i * args.batch_size, min((i + 1) * args.batch_size, len(test_dataset)))]
+            # Correctly map batch indices to dataset indices
+            start_idx = i * args.batch_size
+            end_idx = min((i + 1) * args.batch_size, len(test_dataset))
+            batch_patient_ids = [test_dataset.samples[idx][0] for idx in range(start_idx, end_idx)]
             task_patient_ids.extend(batch_patient_ids)
 
     # 7.4. Aggregate Predictions at Patient Level
@@ -230,30 +306,20 @@ def main(args):
     patient_results_df = pd.DataFrame({
         'record_id': task_patient_ids,
         'predicted_proba': task_preds_proba,
-        'true_label_task': task_true_labels # Keep this for consistency, but not used for patient-level truth
+        'true_label_task': task_true_labels 
     })
 
-    # Get true patient-level diagnoses from the *original* metadata (or test_metadata specifically)
-    # This ensures we get one true diagnosis per patient, regardless of tasks.
-    # Load the test metadata (which should contain unique record_id and clinical_diagnosis)
     test_meta_df = pd.read_csv(args.test_meta)
-    
-    # Filter and map labels for the specific binary task, as done in PatientTaskDataset
     test_meta_df = test_meta_df[test_meta_df['clinical_diagnosis'].isin(args.classes)]
     patient_labels_map = {args.classes[0]: 0, args.classes[1]: 1}
     test_meta_df['true_label_patient'] = test_meta_df['clinical_diagnosis'].map(patient_labels_map)
-    
-    # Ensure one true label per patient_id (drop duplicates if needed, based on your metadata structure)
     patient_true_labels = test_meta_df[['record_id', 'true_label_patient']].drop_duplicates().set_index('record_id')
 
-    # Group by patient and average probabilities
     patient_aggregated_proba = patient_results_df.groupby('record_id')['predicted_proba'].mean()
 
-    # Join with true patient labels
     final_patient_evaluation_df = patient_aggregated_proba.to_frame().join(patient_true_labels)
     final_patient_evaluation_df.reset_index(inplace=True)
 
-    # Make final binary prediction (e.g., threshold at 0.5)
     final_patient_evaluation_df['predicted_label_patient'] = (final_patient_evaluation_df['predicted_proba'] > 0.5).astype(int)
 
     # 7.5. Calculate Patient-Level Metrics
@@ -262,17 +328,29 @@ def main(args):
 
     test_acc = accuracy_score(patient_true, patient_pred)
     test_uar = balanced_accuracy_score(patient_true, patient_pred)
-    
-    # Get original class names for classification report
     target_names = args.classes
     
-    print(f"\n--- Patient-Level Test Set Results ({target_names[0]} vs {target_names[1]}) ---")
-    print(f"Test Accuracy: {test_acc:.4f}")
-    print(f"Test UAR (Balanced Accuracy): {test_uar:.4f}")
-    print("\nClassification Report:")
-    print(classification_report(patient_true, patient_pred, target_names=target_names))
-    print("\nConfusion Matrix:")
-    print(confusion_matrix(patient_true, patient_pred))
+    # --- Capture and Save Results ---
+    # Use io.StringIO to capture print output
+    output_capture = io.StringIO()
+    
+    print(f"\n--- Patient-Level Test Set Results ({target_names[0]} vs {target_names[1]}) ---", file=output_capture)
+    print(f"Test Accuracy: {test_acc:.4f}", file=output_capture)
+    print(f"Test UAR (Balanced Accuracy): {test_uar:.4f}", file=output_capture)
+    print("\nClassification Report:", file=output_capture)
+    print(classification_report(patient_true, patient_pred, target_names=target_names), file=output_capture)
+    print("\nConfusion Matrix:", file=output_capture)
+    print(confusion_matrix(patient_true, patient_pred), file=output_capture)
+
+    # Print to console and save to file
+    final_results_str = output_capture.getvalue()
+    print(final_results_str) # Also print to console
+
+    results_file_path = os.path.join(args.results_dir, f'{experiment_name}_results.txt')
+    with open(results_file_path, 'w') as f:
+        f.write(final_results_str)
+    print(f"✅ Test results saved to {results_file_path}")
+
 
 # Main execution block
 if __name__ == '__main__':
@@ -281,13 +359,15 @@ if __name__ == '__main__':
     # --- Paths ---
     parser.add_argument('--train_meta', type=str, required=True, help='Path to train_metadata.csv')
     parser.add_argument('--val_meta', type=str, required=True, help='Path to validation_metadata.csv')
-    parser.add_argument('--test_meta', type=str, required=True, help='Path to test_metadata.csv') # <--- NEW ARGUMENT
+    parser.add_argument('--test_meta', type=str, required=True, help='Path to test_metadata.csv') 
     parser.add_argument('--pitch_csv', type=str, required=True, help='Path to pitch_features.csv')
     parser.add_argument('--timing_csv', type=str, required=True, help='Path to timing_features.csv')
     parser.add_argument('--embedding_path', type=str, required=True, help='Path to embedding folder')
     parser.add_argument('--imputation_means', type=str, required=True, help='Path to imputation_means.json')
     parser.add_argument('--scaling_params', type=str, required=True, help='Path to scaling_params.json')
-    parser.add_argument('--save_path', type=str, default='best_model.pth', help='Path to save the best model')
+    parser.add_argument('--save_path', type=str, default='best_model.pth', help='Path to save the best model (e.g., best_cn_vs_ad_clinical_model.pth)')
+    parser.add_argument('--results_dir', type=str, default='results', help='Directory to save text results and epoch metrics') # <--- NEW ARG
+    parser.add_argument('--plots_dir', type=str, default='plots', help='Directory to save plots') # <--- NEW ARG
 
     # --- Task and Model ---
     parser.add_argument('--classes', nargs='+', required=True, help="List of two classes for binary task (e.g., CN AD)")
