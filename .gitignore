@@ -205,3 +205,5 @@ __marimo__/
 # my_data
 features
 metadata
+
+__pycache__

@@ -5,9 +5,8 @@ Clasificar
 Nested cross-validation
 holdout bal x diagnosis y sitio (y tarea taría lindo)
 
-4? feature sets:
+feature sets:
 features expertas
-speech timing
 wavlmbase+
 early-fusion
 

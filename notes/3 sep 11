@@ -1,0 +1,11 @@
+Llego con clinical features classifier 
+
+CN vs AD --- Val UAR: .65
+CN vs FTD --- Val UAR: .65
+FTD vs AD --- Val UAR: .5 (random guessing)
+
+prox pasos:
+busqueda de hyperparams
+modelo con embeddings
+modelo early fusion
+Patient-Level Aggregation
