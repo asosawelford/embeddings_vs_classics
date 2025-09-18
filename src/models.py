@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -77,3 +78,72 @@ class EmbeddingMLP(nn.Module):
         The output is a raw logit.
         """
         return self.network(x)
+
+class FusionANN(nn.Module):
+    def __init__(self, clinical_input_size, embedding_input_size,
+                 conv_out_channels=16, conv_kernel_size=3, linear_hidden_size=256, dropout_rate=0.5):
+        """
+        Fusion model inspired by the paper, using a 1D CNN.
+        Fuses clinical and embedding features by treating them as channels.
+
+        Args:
+            clinical_input_size (int): The original size of the clinical feature vector.
+            embedding_input_size (int): The original size of the embedding feature vector.
+            conv_out_channels (int): Number of output channels for the convolutional layer.
+            conv_kernel_size (int): Kernel size for the convolutional layer.
+            linear_hidden_size (int): Size of the dense layer after convolution.
+            dropout_rate (float): Dropout rate for regularization.
+        """
+        super(FusionANN, self).__init__()
+        
+        self.clinical_input_size = clinical_input_size
+        self.embedding_input_size = embedding_input_size
+        
+        # The final padded length will be the max of the two inputs
+        self.padded_length = max(clinical_input_size, embedding_input_size)
+        
+        # 1D Convolutional Layer
+        # in_channels=2 because we are fusing two feature sets (clinical and embedding)
+        self.conv1 = nn.Conv1d(in_channels=2, out_channels=conv_out_channels, 
+                               kernel_size=conv_kernel_size, padding='same')
+        
+        # Adaptive Pooling: This will pool the output of the conv layer to a fixed size,
+        # which is robust to changes in padding or kernel size.
+        self.pool = nn.AdaptiveAvgPool1d(1)
+        
+        # Classification Head
+        self.fc_head = nn.Sequential(
+            nn.Linear(conv_out_channels, linear_hidden_size),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(linear_hidden_size, 1) # 1 output for binary classification
+        )
+
+    def forward(self, x_clinical, x_embedding):
+        # 1. Pad the shorter feature vector to match the length of the longer one.
+        # We assume embedding features are longer.
+        if self.clinical_input_size < self.padded_length:
+            # F.pad format: (pad_left, pad_right)
+            pad_amount = self.padded_length - self.clinical_input_size
+            x_clinical = F.pad(x_clinical, (0, pad_amount), "constant", 0)
+
+        # 2. Reshape and stack to create the (batch, channels, length) tensor
+        # Add a channel dimension to each
+        x_clinical = x_clinical.unsqueeze(1)    # Shape: (batch_size, 1, padded_length)
+        x_embedding = x_embedding.unsqueeze(1)  # Shape: (batch_size, 1, padded_length)
+        
+        # Stack along the channel dimension
+        x_fused = torch.cat((x_clinical, x_embedding), dim=1) # Shape: (batch_size, 2, padded_length)
+        
+        # 3. Pass through the network
+        x = self.conv1(x_fused)
+        x = F.relu(x)
+        x = self.pool(x) # Shape: (batch_size, conv_out_channels, 1)
+        
+        # Flatten the output from the pooling layer before the linear head
+        x = x.squeeze(-1) # Shape: (batch_size, conv_out_channels)
+        
+        # 4. Final classification
+        output = self.fc_head(x)
+        
+        return output

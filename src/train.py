@@ -13,7 +13,7 @@ import io
 
 # Import our custom modules
 from dataloader import PatientTaskDataset, collate_fn
-from models import ExplainableMLP, EmbeddingMLP
+from models import ExplainableMLP, EmbeddingMLP, FusionANN
 
 # Import metrics
 from sklearn.metrics import accuracy_score, balanced_accuracy_score, classification_report, confusion_matrix
@@ -134,13 +134,20 @@ def main(args):
 
         collate_function = functools.partial(collate_fn, fixed_clinical_len=None) # No clinical features, so no fixed_clinical_len
     
-    # Placeholder for fusion (will use both)
-    # elif args.mode == 'fusion':
-    #     clinical_input_size_for_fusion = get_clinical_input_size(args.scaling_params)
-    #     embedding_feature_dim_for_fusion = len(args.embedding_layers) * 768
-    #     model = FusionANN(clinical_input_size=clinical_input_size_for_fusion, 
-    #                       embedding_input_size=embedding_feature_dim_for_fusion, ...).to(device)
-    #     collate_function = functools.partial(collate_fn, fixed_clinical_len=clinical_input_size_for_fusion)
+    elif args.mode == 'fusion': # <--- NEW FUSION MODE HANDLING
+        clinical_input_size = get_clinical_input_size(args.scaling_params)
+        embedding_input_size = len(args.embedding_layers) * 768
+        print(f"Fusion model input sizes: Clinical={clinical_input_size}, Embedding={embedding_input_size}")
+        
+        model = FusionANN(
+            clinical_input_size=clinical_input_size,
+            embedding_input_size=embedding_input_size,
+            # You can add more argparse args for these hyperparameters
+            linear_hidden_size=args.hidden_size,
+            dropout_rate=args.dropout
+        ).to(device)
+
+        collate_function = functools.partial(collate_fn, fixed_clinical_len=clinical_input_size)
 
     else:
         raise ValueError(f"Mode '{args.mode}' not recognized or not implemented yet.")
@@ -157,7 +164,7 @@ def main(args):
 
     # 6. Training Loop
     best_val_uar = 0.0
-    epoch_metrics = [] # <--- NEW: List to store metrics per epoch
+    epoch_metrics = []
 
     for epoch in range(args.epochs):
         # --- Training Phase ---
@@ -167,24 +174,18 @@ def main(args):
         
         for batch in tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs} [Train]"):
             if batch is None: continue 
-            
-            # Correctly handle features based on mode
-            if args.mode == 'clinical':
-                features = batch['clinical_feats'].to(device)
-            elif args.mode == 'embedding':
-                features = batch['embedding_feats'].to(device)
-            # Add conditions for 'fusion' later:
-            # elif args.mode == 'fusion':
-            #     features_clinical = batch['clinical_feats'].to(device)
-            #     features_embedding = batch['embedding_feats'].to(device)
-            #     # Pass both to model(features_clinical, features_embedding)
-            
             labels = batch['label'].to(device)
             
-            labels = batch['label'].to(device)
+            # --- FEATURE EXTRACTION FROM BATCH (UPDATED FOR FUSION) ---
+            if args.mode == 'fusion':
+                features_clinical = batch['clinical_feats'].to(device)
+                features_embedding = batch['embedding_feats'].to(device)
+                outputs = model(features_clinical, features_embedding)
+            else: # For clinical or embedding mode
+                features = batch.get('clinical_feats', batch.get('embedding_feats')).to(device)
+                outputs = model(features)
 
             optimizer.zero_grad()
-            outputs = model(features)
             loss = criterion(outputs, labels.float().unsqueeze(1))
             loss.backward()
             optimizer.step()
@@ -205,21 +206,17 @@ def main(args):
         with torch.no_grad():
             for batch in tqdm(val_loader, desc=f"Epoch {epoch+1}/{args.epochs} [Val]"):
                 if batch is None: continue
-
-                # Correctly handle features based on mode
-                if args.mode == 'clinical':
-                    features = batch['clinical_feats'].to(device)
-                elif args.mode == 'embedding':
-                    features = batch['embedding_feats'].to(device)
-                # Add conditions for 'fusion' later:
-                # elif args.mode == 'fusion':
-                #     features_clinical = batch['clinical_feats'].to(device)
-                #     features_embedding = batch['embedding_feats'].to(device)
-                #     # Pass both to model(features_clinical, features_embedding)
-                
+            
                 labels = batch['label'].to(device)
                 
-                outputs = model(features)
+                if args.mode == 'fusion':
+                    features_clinical = batch['clinical_feats'].to(device)
+                    features_embedding = batch['embedding_feats'].to(device)
+                    outputs = model(features_clinical, features_embedding)
+                else:
+                    features = batch.get('clinical_feats', batch.get('embedding_feats')).to(device)
+                    outputs = model(features)
+                
                 loss = criterion(outputs, labels.float().unsqueeze(1))
                 val_loss += loss.item()
 
@@ -287,20 +284,18 @@ def main(args):
         for i, batch in tqdm(enumerate(test_loader), total=len(test_loader), desc="Test Set Inference"):
             if batch is None: continue
             batch_patient_ids = batch['record_id']
-            # Correctly handle features based on mode
-            if args.mode == 'clinical':
-                features = batch['clinical_feats'].to(device)
-            elif args.mode == 'embedding':
-                features = batch['embedding_feats'].to(device)
-            # Add conditions for 'fusion' later:
-            # elif args.mode == 'fusion':
-            #     features_clinical = batch['clinical_feats'].to(device)
-            #     features_embedding = batch['embedding_feats'].to(device)
-            #     # Pass both to model(features_clinical, features_embedding)
+            if batch is None: continue
             
             labels = batch['label'].to(device)
             
-            outputs = model(features)
+            if args.mode == 'fusion':
+                features_clinical = batch['clinical_feats'].to(device)
+                features_embedding = batch['embedding_feats'].to(device)
+                outputs = model(features_clinical, features_embedding)
+            else:
+                features = batch.get('clinical_feats', batch.get('embedding_feats')).to(device)
+                outputs = model(features)
+            
             probabilities = torch.sigmoid(outputs).squeeze().detach().cpu().numpy()
 
             # If batch size is 1, probabilities might not be an iterable array
