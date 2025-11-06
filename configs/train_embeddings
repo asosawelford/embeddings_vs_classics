@@ -8,11 +8,11 @@ python src/train.py \
     --imputation_means data/features/imputation_means.json \
     --scaling_params data/features/scaling_params.json \
     --hidden_size 256 \
-    --results_dir results/embedding_AD_CN \
-    --plots_dir plots/embedding_AD_CN \
+    --results_dir results/embedding_AD_CN_90 \
+    --plots_dir plots/embedding_AD_CN_90 \
     --classes CN AD \
     --mode embedding \
-    --embedding_layers 0 8 11 \
-    --epochs 30 \
+    --embedding_layers 0 1 2 3 4 5 6 7 8 9 10 11 12 \
+    --epochs 90 \
     --batch_size 32 \
     --lr 0.0001

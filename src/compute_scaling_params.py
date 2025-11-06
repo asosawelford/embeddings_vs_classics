@@ -25,7 +25,7 @@ def compute_and_save_scaling_params(train_metadata_path, clinical_feature_paths,
 
     print("Collecting all clinical features and determining max length...")
     
-    tasks = ['CraftDe', 'Phonological', 'Phonological2', 'Semantic', 'Semantic2', 'Fugu']
+    tasks = ['CraftIm', 'Phonological', 'Phonological2', 'Semantic', 'Semantic2', 'Fugu']
     
     # --- Step 1: Determine the maximum feature length ---
     # This loop will iterate once just to find the max length
