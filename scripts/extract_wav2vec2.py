@@ -1,7 +1,7 @@
 """
 use in cl like this :)
 
-python scripts/extract_wavlm.py --input_dir "" --output_dir ""
+python scripts/extract_wav2vec2.py --input_dir "" --output_dir ""
 
 """
 import numpy as np
@@ -14,7 +14,7 @@ from transformers import Wav2Vec2FeatureExtractor, Wav2Vec2Model
 
 def main(args):
     """
-    Main function to extract time-step WavLM embeddings for all layers
+    Main function to extract time-step wav2vec2 embeddings for all layers
     from a folder of audio files.
     """
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -27,7 +27,7 @@ def main(args):
     print(f"Input directory: {input_dir}")
     print(f"Output directory: {output_dir}")
 
-    # Load the WavLM processor and model
+    # Load the wav2vec2 processor and model
     print(f"Loading model: {args.model_name}")
     processor = Wav2Vec2FeatureExtractor.from_pretrained(args.model_name)
     model = Wav2Vec2Model.from_pretrained(
@@ -37,7 +37,7 @@ def main(args):
     model.eval()
 
     # Find all audio files
-    audio_files = list(input_dir.glob("*.wav"))
+    audio_files = list(input_dir.rglob("*.wav"))
     print(f"Found {len(audio_files)} audio files to process.")
     if not audio_files:
         return
@@ -45,6 +45,11 @@ def main(args):
     # Process each audio file
     for audio_path in tqdm(audio_files, desc="Extracting embeddings per time-step"):
         try:
+            # --- Preserve directory structure for output file ---
+            relative_path = audio_path.relative_to(input_dir)
+            output_filename = (output_dir / relative_path).with_suffix('.npz')
+            output_filename.parent.mkdir(parents=True, exist_ok=True)
+
             # 1. Load and resample the audio file
             speech_array, sampling_rate = librosa.load(audio_path, sr=16000)
 
@@ -53,12 +58,24 @@ def main(args):
                 speech_array,
                 sampling_rate=sampling_rate,
                 return_tensors="pt",
-                padding=True # Padding is necessary for handling variable lengths
+                padding=True
             )
 
-            # 3. Move inputs to the selected device
-            input_values = inputs.input_values.to(DEVICE)
-            attention_mask = inputs.attention_mask.to(DEVICE)
+            # 3. Ensure tensors have batch dim, create attention_mask if missing, move to device
+            input_values = inputs.input_values
+            if input_values.dim() == 1:
+                input_values = input_values.unsqueeze(0)
+            input_values = input_values.to(DEVICE)
+
+            # Create attention_mask if processor didn't return one
+            if hasattr(inputs, "attention_mask") and inputs.attention_mask is not None:
+                attention_mask = inputs.attention_mask
+                if attention_mask.dim() == 1:
+                    attention_mask = attention_mask.unsqueeze(0)
+            else:
+                attention_mask = torch.ones_like(input_values, dtype=torch.long)
+
+            attention_mask = attention_mask.to(DEVICE).long()
 
             # 4. Forward pass through the model
             with torch.no_grad():
@@ -67,7 +84,7 @@ def main(args):
             all_layer_embeddings = {}
             
             # Get the number of valid (non-padded) frames from the attention mask
-            num_valid_frames = attention_mask.sum().item()
+            num_valid_frames = int(attention_mask.sum().item())
 
             for i, layer_hidden_state in enumerate(outputs.hidden_states):
                 # Squeeze the batch dimension
@@ -82,15 +99,15 @@ def main(args):
 
                 all_layer_embeddings[f'layer_{i}'] = cpu_embedding
             
-            # --- MODIFIED: Save all layers' time-step embeddings to a single .npz file ---
-            output_filename = output_dir / f"{audio_path.stem}.npz"
+            # Save all layers' time-step embeddings to a single .npz file
             np.savez_compressed(output_filename, **all_layer_embeddings)
 
         except Exception as e:
-            # More informative error logging
+            # More informative error logging (print full traceback)
+            import traceback
             print(f"\n--- ERROR ---")
             print(f"Failed to process file: {audio_path.name}")
-            print(f"Error: {e}")
+            traceback.print_exc()
             print(f"Skipping this file.")
             print(f"---------------")
             continue  # Move to the next file
@@ -99,9 +116,10 @@ def main(args):
     print(f"Embeddings are saved in: {output_dir}")
 
 
+
 if __name__ == "__main__":
     # --- MODIFIED: Setup argument parser ---
-    parser = argparse.ArgumentParser(description="Extract time-step WavLM embeddings from audio files.")
+    parser = argparse.ArgumentParser(description="Extract time-step wav2vec2 embeddings from audio files.")
     
     parser.add_argument(
         "--input_dir",
@@ -120,7 +138,7 @@ if __name__ == "__main__":
         type=str,
         # default="microsoft/wavlm-base-plus",
         default="facebook/wav2vec2-base",
-        help="Name of the WavLM model from the Hugging Face Hub."
+        help="Name of the wav2vec2 model from the Hugging Face Hub."
     )
     
     args = parser.parse_args()
