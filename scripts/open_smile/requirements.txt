@@ -1,0 +1,3 @@
+# documentación: https://github.com/audeering/opensmile-python 
+opensmile
+pandas
