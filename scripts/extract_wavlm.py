@@ -36,8 +36,8 @@ def main(args):
     ).to(DEVICE)
     model.eval()
 
-    # Find all audio files
-    audio_files = list(input_dir.glob("*.wav"))
+    # --- Recursively find all audio files in subdirectories ---
+    audio_files = list(input_dir.rglob("*.wav"))
     print(f"Found {len(audio_files)} audio files to process.")
     if not audio_files:
         return
@@ -45,6 +45,20 @@ def main(args):
     # Process each audio file
     for audio_path in tqdm(audio_files, desc="Extracting embeddings per time-step"):
         try:
+            # --- Preserve directory structure for output file ---
+            # 1. Get the path of the audio file relative to the input directory
+            #    e.g., if input_dir is 'data/' and audio_path is 'data/speaker1/file.wav',
+            #    relative_path will be 'speaker1/file.wav'
+            relative_path = audio_path.relative_to(input_dir)
+
+            # 2. Create the full output path by joining the output_dir and the relative_path,
+            #    and then change the file extension from .wav to .npz
+            output_filename = (output_dir / relative_path).with_suffix('.npz')
+
+            # 3. Create the parent directories for the output file if they don't exist
+            #    e.g., create 'output_dir/speaker1/'
+            output_filename.parent.mkdir(parents=True, exist_ok=True)
+
             # 1. Load and resample the audio file
             speech_array, sampling_rate = librosa.load(audio_path, sr=16000)
 
@@ -53,7 +67,7 @@ def main(args):
                 speech_array,
                 sampling_rate=sampling_rate,
                 return_tensors="pt",
-                padding=True # Padding is necessary for handling variable lengths
+                padding=True
             )
 
             # 3. Move inputs to the selected device
@@ -64,56 +78,47 @@ def main(args):
             with torch.no_grad():
                 outputs = model(input_values, attention_mask=attention_mask)
 
+            # --- Keep all time-step embeddings for each layer ---
             all_layer_embeddings = {}
-            
-            # Get the number of valid (non-padded) frames from the attention mask
             num_valid_frames = attention_mask.sum().item()
 
             for i, layer_hidden_state in enumerate(outputs.hidden_states):
-                # Squeeze the batch dimension
-                # Shape becomes: (num_frames, hidden_size)
                 unbatched_hidden_state = layer_hidden_state.squeeze(0)
-                
-                # Remove padding by slicing up to the number of valid frames
                 unpadded_hidden_state = unbatched_hidden_state[:num_valid_frames, :]
-                
-                # Move to CPU for saving
                 cpu_embedding = unpadded_hidden_state.cpu().numpy()
-
                 all_layer_embeddings[f'layer_{i}'] = cpu_embedding
             
-            # --- MODIFIED: Save all layers' time-step embeddings to a single .npz file ---
-            output_filename = output_dir / f"{audio_path.stem}.npz"
+            # --- Save all layers' time-step embeddings to the new path ---
             np.savez_compressed(output_filename, **all_layer_embeddings)
 
         except Exception as e:
-            # More informative error logging
             print(f"\n--- ERROR ---")
             print(f"Failed to process file: {audio_path.name}")
             print(f"Error: {e}")
             print(f"Skipping this file.")
             print(f"---------------")
-            continue  # Move to the next file
+            continue
 
     print("\nExtraction complete.")
     print(f"Embeddings are saved in: {output_dir}")
 
 
 if __name__ == "__main__":
-    # --- MODIFIED: Setup argument parser ---
-    parser = argparse.ArgumentParser(description="Extract time-step WavLM embeddings from audio files.")
+    parser = argparse.ArgumentParser(
+        description="Extract time-step WavLM embeddings from all audio files in a directory and its subdirectories."
+    )
     
     parser.add_argument(
         "--input_dir",
         type=str,
         required=True,
-        help="Path to the directory containing .wav audio files."
+        help="Path to the root directory containing .wav audio files (subdirectories will be searched)."
     )
     parser.add_argument(
         "--output_dir",
         type=str,
         required=True,
-        help="Path to the directory where embeddings will be saved as .npz files."
+        help="Path to the directory where embeddings will be saved, preserving the input folder structure."
     )
     parser.add_argument(
         "--model_name",
