@@ -10,7 +10,7 @@ from tqdm import tqdm
 import argparse
 import torch
 import librosa
-from transformers import Wav2Vec2FeatureExtractor, WavLMModel
+from transformers import Wav2Vec2FeatureExtractor, Wav2Vec2Model
 
 def main(args):
     """
@@ -30,7 +30,7 @@ def main(args):
     # Load the WavLM processor and model
     print(f"Loading model: {args.model_name}")
     processor = Wav2Vec2FeatureExtractor.from_pretrained(args.model_name)
-    model = WavLMModel.from_pretrained(
+    model = Wav2Vec2Model.from_pretrained(
         args.model_name,
         output_hidden_states=True # Ensure we get all layers
     ).to(DEVICE)
@@ -118,7 +118,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model_name",
         type=str,
-        default="microsoft/wavlm-base-plus",
+        # default="microsoft/wavlm-base-plus",
+        default="facebook/wav2vec2-base",
         help="Name of the WavLM model from the Hugging Face Hub."
     )
     
