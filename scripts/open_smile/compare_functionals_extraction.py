@@ -12,12 +12,16 @@ import opensmile
 import pandas as pd
 from multiprocessing import Pool, cpu_count
 
-root_dir = Path(__file__).resolve().parents[2]
-sys.path.append(str(root_dir))
 
-from config import BASE_DIR
-from config import exclude_audio_files
-from config import extract_fileid_task
+BASE_DIR = ""
+
+exclude_text_files = ["readme","error","config"] # tareas a excluir del analisis de texto
+
+def extract_fileid_task(file_path): # Modificar de acuerdo a el proyecto
+    file_id = file_path.split("_")[1]
+    task = file_path.split("_")[2]
+    task = task.split(".")[0]
+    return file_id, task
 
 def find_wavs(root_dir, exclude_substrings=None):
     exclude_substrings = exclude_substrings or []
