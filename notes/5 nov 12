@@ -1,0 +1,11 @@
+Paso 1: baseline a partir de estadisticos, con time-pooling de los embeddings
+    clasificacion por capa
+    pomedio pesado de capas
+    Dimension-wise Gumbel layer selection
+
+Paso 2: embeddings tomados de timesteps que se corresponden con las content words.
+    duración de las content words
+
+
+Paso 3 (nada definido):
+    self-attention entre bert y audio_embs --> interpretación basada en lenguaje

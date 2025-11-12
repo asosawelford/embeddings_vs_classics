@@ -4,6 +4,7 @@ tqdm
 librosa
 transformers
 sentencepiece
+pandas
 
 # confirm torch 2.6 installation and cuda compatibility
 

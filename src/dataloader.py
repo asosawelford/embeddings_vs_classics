@@ -167,7 +167,8 @@ class PatientTaskDataset(Dataset):
                             return None # This sample is invalid, return None
 
                 stacked_layers = np.stack(loaded_layer_arrays, axis=0)
-                embedding_tensor = torch.tensor(stacked_layers.flatten(), dtype=torch.float32)
+                time_averaged_layers = np.mean(stacked_layers, axis=-1) # time-pooling
+                embedding_tensor = torch.tensor(time_averaged_layers.flatten(), dtype=torch.float32)
                 data_dict['embedding_feats'] = embedding_tensor
 
             except FileNotFoundError:
