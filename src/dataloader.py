@@ -1,3 +1,7 @@
+"""
+define how to load and process data
+"""
+
 import json
 import pandas as pd
 import numpy as np
@@ -8,8 +12,8 @@ import warnings # For silencing the pandas warning
 
 def collate_fn(batch, fixed_clinical_len=None):
     """
-    Custom collate function. Now handles padding clinical features to a fixed global length.
-    
+    Handles padding clinical features to a fixed global length.
+
     Args:
         batch (list): A list of sample dictionaries.
         fixed_clinical_len (int, optional): The fixed length to pad clinical features to.
@@ -48,10 +52,12 @@ def collate_fn(batch, fixed_clinical_len=None):
 
 class PatientTaskDataset(Dataset):
     def __init__(self, metadata_path, clinical_feature_paths, embedding_path, mode, imputation_means_path, 
-                 scaling_params_path, classes_to_load, embedding_layers=[0, 8, 11]): # <--- NEW PARAMETER
+                 scaling_params_path, classes_to_load, embedding_layers=[0, 8, 11]):
         """
         Args:
-            scaling_params_path (str): Path to the JSON file with pre-computed scaling parameters.
+            medatada_path: Path to the list of ID's, site (cohort) and clases/condition (AD, CN, FTD)
+            scaling_params_path (str): Path to the JSON file with pre-computed scaling parameters of the clinical features.
+            mode: define wheter to build a clinical features, embedding, or early fusion dataset.
         """
         self.mode = mode
         self.embedding_path = embedding_path
@@ -75,7 +81,7 @@ class PatientTaskDataset(Dataset):
         with open(imputation_means_path, 'r') as f:
             self.imputation_means = json.load(f)
 
-        # 5. Load the pre-computed scaling parameters <--- NEW
+        # 5. Load the pre-computed scaling parameters
         with open(scaling_params_path, 'r') as f:
             scaling_data = json.load(f)
             self.scaling_means = np.array(scaling_data['mean'], dtype=np.float32)
@@ -84,7 +90,7 @@ class PatientTaskDataset(Dataset):
         
         # 6. Create the master list of (patient, task) samples
         self.samples = []
-        tasks = ['CraftDe', 'Phonological', 'Phonological2', 'Semantic', 'Semantic2', 'Fugu']
+        tasks = ['CraftIm', 'Phonological', 'Phonological2', 'Semantic', 'Semantic2', 'Fugu']
         for _, row in metadata_df.iterrows():
             record_id = row['record_id']
             diagnosis = row['clinical_diagnosis']
