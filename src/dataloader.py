@@ -160,7 +160,7 @@ class PatientTaskDataset(Dataset):
 
         # --- Embedding Feature Loading ---
         if self.mode in ['embedding', 'fusion']:
-            npz_path = f"{self.embedding_path}/REDLAT_{record_id}_{task_name}.npz"
+            npz_path = f"{self.embedding_path}/{record_id}/REDLAT_{record_id}_{task_name}.npz"
             try:
                 loaded_layer_arrays = []
                 with np.load(npz_path) as data:
