@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class ExplainableMLP(nn.Module):
-    def __init__(self, input_size, hidden_size=128, num_hidden_layers=2, dropout_rate=0.5):
+    def __init__(self, input_size, hidden_size=128, num_hidden_layers=2, dropout_rate=0.25):
         """
         A simple Multi-Layer Perceptron for binary classification.
 
@@ -145,5 +145,54 @@ class FusionANN(nn.Module):
         
         # 4. Final classification
         output = self.fc_head(x)
+        
+        return output
+
+class WeightedAverage(torch.nn.Module):
+    def __init__(self, num_layers=13):
+        super().__init__()
+        # Create a learnable parameter vector, one weight per layer
+        self.weights = torch.nn.Parameter(data=torch.ones((num_layers,)))
+
+    def forward(self, x):
+        # x has shape: (batch_size, num_layers, features) e.g. (32, 13, 768)
+        
+        # Turn weights into a probability distribution that sums to 1
+        w = torch.nn.functional.softmax(self.weights, dim=0)
+        
+        # Multiply each layer's features by its learned weight.
+        # w[None, :, None] broadcasts the weights to shape (1, num_layers, 1)
+        x_weighted = x * w[None, :, None]
+        
+        # Sum across the layer dimension to get the final weighted average
+        # The output has shape (batch_size, features) e.g. (32, 768)
+        return torch.sum(x_weighted, dim=1)
+
+# --- This is our new main model ---
+class WeightedEmbeddingMLP(nn.Module):
+    def __init__(self, features_per_layer, hidden_size, num_layers, dropout_rate):
+        super().__init__()
+
+        # Instantiate the weighted average layer
+        self.weighted_average = WeightedAverage(num_layers)
+
+        # The MLP body now takes the output of the weighted average layer as input
+        # Its input dimension is features_per_layer (e.g., 768), NOT the flattened size.
+        self.network_body = nn.Sequential(
+            nn.Linear(features_per_layer, hidden_size),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(hidden_size, hidden_size),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(hidden_size, 1) # Final output layer
+        )
+
+    def forward(self, x):
+        # 1. Apply the learned weighted average to the input layers
+        weighted_x = self.weighted_average(x)
+        
+        # 2. Pass the result through the standard MLP
+        output = self.network_body(weighted_x)
         
         return output

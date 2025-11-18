@@ -13,7 +13,7 @@ import io
 
 # Import our custom modules
 from dataloader import PatientTaskDataset, collate_fn
-from models import ExplainableMLP, EmbeddingMLP, FusionANN
+from models import ExplainableMLP, FusionANN, WeightedEmbeddingMLP
 
 # Import metrics
 from sklearn.metrics import accuracy_score, balanced_accuracy_score, classification_report, confusion_matrix
@@ -60,6 +60,38 @@ def plot_metrics(epoch_metrics, plot_dir, experiment_name):
     plt.close()
 
     print(f"✅ Plots saved to {plot_dir}")
+
+def analyze_softmax_weights(model, embedding_layers_used, plot_dir, experiment_name):
+    print("\n--- Analyzing Learned Layer Weights (Softmax) ---")
+    
+    # Get the raw learned weights from the model
+    trained_weights = model.weighted_average.weights.data.cpu()
+    
+    # Apply softmax to get the final probabilities
+    final_importances = torch.nn.functional.softmax(trained_weights, dim=0)
+    
+    layer_importances = {layer_idx: imp.item() for layer_idx, imp in zip(embedding_layers_used, final_importances)}
+    
+    # Sort for printing
+    sorted_layers = sorted(layer_importances.items(), key=lambda item: item[1], reverse=True)
+
+    print("Final learned importance (softmax weight) for each embedding layer:")
+    for layer, importance in sorted_layers:
+        print(f"  - Layer {layer:<2}: {importance:.4f}  ({importance*100:.2f}%)")
+
+    # Plot the results
+    plt.figure(figsize=(12, 7))
+    plt.bar([str(k) for k in layer_importances.keys()], layer_importances.values(), color='mediumseagreen')
+    plt.xlabel("Source Embedding Layer (from WavLM)")
+    plt.ylabel("Learned Importance (Softmax Probability)")
+    plt.title("Learned Importance of Source Embedding Layers")
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    
+    plot_path = os.path.join(plot_dir, f'{experiment_name}_layer_weights.png')
+    plt.savefig(plot_path)
+    plt.close()
+    
+    print(f"\n✅ Layer weight analysis plot saved to {plot_path}")
 
 
 def main(args):
@@ -124,11 +156,15 @@ def main(args):
     
     elif args.mode == 'embedding': # <--- NEW MODE HANDLING
         embedding_input_size = len(args.embedding_layers) * 768
-        print(f"Embedding feature input size: {embedding_input_size}")
+        features_per_layer = 768 # For WavLM-base
+        num_layers = len(args.embedding_layers)
+        print(f"Using WeightedEmbeddingMLP with {num_layers} layers.")
+
         
-        model = EmbeddingMLP( # Using the new EmbeddingMLP
-            input_size=embedding_input_size, 
-            hidden_size=args.hidden_size, # Reusing same hidden_size for now, you can add new arg
+        model = WeightedEmbeddingMLP(
+            features_per_layer=features_per_layer,
+            hidden_size=args.hidden_size,
+            num_layers=num_layers,
             dropout_rate=args.dropout
         ).to(device)
 
@@ -155,12 +191,36 @@ def main(args):
     print(model)
 
     # 4. Setup DataLoaders
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, collate_fn=collate_function)
-    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, collate_fn=collate_function)
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, collate_fn=collate_function,
+                              num_workers=16, pin_memory=True)
+    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, collate_fn=collate_function,
+                              num_workers=8, pin_memory=True)
 
     # 5. Setup Loss and Optimizer
     criterion = nn.BCEWithLogitsLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    # 5. Setup Loss and Optimizer
+    criterion = nn.BCEWithLogitsLoss()
+
+    # --- Implement Differential Learning Rate for the WeightedAverage layer ---
+    print("\nSetting up optimizer with differential learning rates for layer weights...")
+    
+    # Separate the parameters into two groups
+    # Group 1: All parameters EXCEPT the special weights
+    base_params = [p for name, p in model.named_parameters() if "weighted_average.weights" not in name]
+    
+    # Group 2: ONLY the special weights from the WeightedAverage layer
+    weight_params = model.weighted_average.weights
+    
+    # Create the parameter groups for the optimizer
+    optimizer_grouped_parameters = [
+        {'params': base_params}, # Gets the default LR from args.lr
+        {'params': weight_params, 'lr': args.lr_weights} # Gets the special, higher LR
+    ]
+
+    optimizer = torch.optim.Adam(optimizer_grouped_parameters, lr=args.lr)
+    
+    print(f"  - Base LR: {args.lr}")
+    print(f"  - WeightedAverage LR: {args.lr_weights}")
 
     # 6. Training Loop
     best_val_uar = 0.0
@@ -356,6 +416,15 @@ def main(args):
         f.write(final_results_str)
     print(f"✅ Test results saved to {results_file_path}")
 
+     # --- THE WEIGHT ANALYSIS CALL ---
+    if args.mode == 'embedding':
+        # Use our new analysis function
+        analyze_softmax_weights(
+            model=model,
+            embedding_layers_used=args.embedding_layers,
+            plot_dir=args.plots_dir,
+            experiment_name=experiment_name
+        )
 
 # Main execution block
 if __name__ == '__main__':
@@ -373,6 +442,7 @@ if __name__ == '__main__':
     parser.add_argument('--save_path', type=str, default='_dynamic_path', help='Path to save the best model (will be constructed based on experiment name and results_dir)')
     parser.add_argument('--results_dir', type=str, default='results', help='Directory to save text results and epoch metrics') 
     parser.add_argument('--plots_dir', type=str, default='plots', help='Directory to save plots') 
+    parser.add_argument('--lr_weights', type=float, default=1e-3, help='A separate, higher learning rate for the WeightedAverage layer.')
 
     # --- Task and Model ---
     parser.add_argument('--classes', nargs='+', required=True, help="List of two classes for binary task (e.g., CN AD)")
