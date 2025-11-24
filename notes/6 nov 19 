@@ -1,0 +1,30 @@
+- Update:
+
+Todo con lopera, filtrado para los participantes que tienen todas las tareas:
+
+CN vs AD con todas las layers de WavLM.
+
+Contar del learned weighted sum
+
+por otro lado:
+
+lematize los textos y extraje wavlm embeddings a nivel de palabra de cada participante.
+	-hay que ver como usar eso, si mean+std y si usar una tarea especifica
+	
+ya sacar embeddings del resto de redlat
+
+- Notas:
+
+analizar la variabilidad de los parametros optimizados
+lo puedo repetir 5 veces sin reemplazo
+hacer las 7 tareas por separado
+
+tomar embeddings de palabras de todos los sutantivos/verbos/etc... además de esto
+
+FUGU y retelling
+
+fusion sincrona entre habla lenguaje
+
+
+finetunear o re-entrenar el upstream embedding????
+

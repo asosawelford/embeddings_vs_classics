@@ -75,11 +75,20 @@ def analyze_softmax_weights(model, embedding_layers_used, plot_dir, experiment_n
     # Sort for printing
     sorted_layers = sorted(layer_importances.items(), key=lambda item: item[1], reverse=True)
 
+    # --- THIS IS THE NEW PART ---
+    # Use io.StringIO to capture the text output that we want to save
+    output_capture = io.StringIO()
+    print("\n--- Analyzing Learned Layer Weights (Softmax) ---", file=output_capture)
+    print("Final learned importance (softmax weight) for each embedding layer:", file=output_capture)
+
     print("Final learned importance (softmax weight) for each embedding layer:")
     for layer, importance in sorted_layers:
+        # Print to console for real-time viewing
         print(f"  - Layer {layer:<2}: {importance:.4f}  ({importance*100:.2f}%)")
+        # Print to our in-memory file for saving later
+        print(f"  - Layer {layer:<2}: {importance:.4f}  ({importance*100:.2f}%)", file=output_capture)
 
-    # Plot the results
+    # Plot the results (this part is unchanged)
     plt.figure(figsize=(12, 7))
     plt.bar([str(k) for k in layer_importances.keys()], layer_importances.values(), color='mediumseagreen')
     plt.xlabel("Source Embedding Layer (from WavLM)")
@@ -92,6 +101,9 @@ def analyze_softmax_weights(model, embedding_layers_used, plot_dir, experiment_n
     plt.close()
     
     print(f"\n✅ Layer weight analysis plot saved to {plot_path}")
+
+    # Return the captured text as a string
+    return output_capture.getvalue()
 
 
 def main(args):
@@ -154,7 +166,7 @@ def main(args):
 
         collate_function = functools.partial(collate_fn, fixed_clinical_len=input_size)
     
-    elif args.mode == 'embedding': # <--- NEW MODE HANDLING
+    elif args.mode == 'embedding':
         embedding_input_size = len(args.embedding_layers) * 768
         features_per_layer = 768 # For WavLM-base
         num_layers = len(args.embedding_layers)
@@ -225,6 +237,9 @@ def main(args):
     # 6. Training Loop
     best_val_uar = 0.0
     epoch_metrics = []
+    # patience
+    patience_counter = 0
+    patience_limit = args.patience
 
     for epoch in range(args.epochs):
         # --- Training Phase ---
@@ -253,6 +268,9 @@ def main(args):
             train_loss += loss.item()
             
             preds = torch.sigmoid(outputs).round().squeeze().detach().cpu().numpy()
+            # Ensure preds is always iterable, even for a batch size of 1
+            if preds.ndim == 0:
+                preds = [preds.item()]
             train_preds.extend(preds)
             train_labels.extend(labels.cpu().numpy())
 
@@ -281,6 +299,8 @@ def main(args):
                 val_loss += loss.item()
 
                 preds = torch.sigmoid(outputs).round().squeeze().detach().cpu().numpy()
+                if preds.ndim == 0:
+                    preds = [preds.item()]
                 val_preds.extend(preds)
                 val_labels.extend(labels.cpu().numpy())
         
@@ -303,6 +323,13 @@ def main(args):
             best_val_uar = val_uar
             torch.save(model.state_dict(), args.save_path)
             print(f"✨ New best model saved with Val UAR: {best_val_uar:.4f} ✨")
+            patience_counter = 0 # Reset patience
+        else:
+            patience_counter += 1 # Increment patience
+            print(f"Patience: {patience_counter}/{patience_limit}")
+            if patience_counter >= patience_limit:
+                print(f"\nStopping early. No improvement in Val UAR for {patience_limit} epochs.")
+                break # Exit the training loop
 
     print("\nTraining finished.")
     
@@ -411,20 +438,23 @@ def main(args):
     final_results_str = output_capture.getvalue()
     print(final_results_str) # Also print to console
 
-    results_file_path = os.path.join(args.results_dir, f'{experiment_name}_results.txt')
-    with open(results_file_path, 'w') as f:
-        f.write(final_results_str)
-    print(f"✅ Test results saved to {results_file_path}")
-
-     # --- THE WEIGHT ANALYSIS CALL ---
-    if args.mode == 'embedding':
-        # Use our new analysis function
-        analyze_softmax_weights(
+    # Call the analysis function and get its text output
+    weight_analysis_str = ""
+    if args.mode == 'embedding' and hasattr(model, 'weighted_average'):
+        weight_analysis_str = analyze_softmax_weights(
             model=model,
             embedding_layers_used=args.embedding_layers,
             plot_dir=args.plots_dir,
             experiment_name=experiment_name
         )
+
+    # Combine both strings and write to the file
+    results_file_path = os.path.join(args.results_dir, f'{experiment_name}_results.txt')
+    with open(results_file_path, 'w') as f:
+        f.write(final_results_str)
+        f.write(weight_analysis_str) # Append the weight analysis text
+
+    print(f"✅ Full test results and analysis saved to {results_file_path}")
 
 # Main execution block
 if __name__ == '__main__':
@@ -455,7 +485,8 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=16, help='Batch size')
     parser.add_argument('--hidden_size', type=int, default=128, help='Hidden layer size for MLP')
     parser.add_argument('--dropout', type=float, default=0.5, help='Dropout rate')
-    
+    parser.add_argument('--patience', type=int, default=20, help='Epochs to wait for improvement before stopping early.')
+
     args = parser.parse_args()
     
     # Convert paths to a dictionary for the dataloader

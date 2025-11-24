@@ -69,6 +69,7 @@ class PatientTaskDataset(Dataset):
         # 3. Create the master list of samples
         self.samples = []
         tasks = ['CraftIm', 'CraftDe' 'Phonological', 'Phonological2', 'Semantic', 'Semantic2', 'Fugu']
+        # tasks = ['Fugu']
         for _, row in metadata_df.iterrows():
             record_id = row['record_id']
             diagnosis = row['clinical_diagnosis']
@@ -79,6 +80,7 @@ class PatientTaskDataset(Dataset):
         if self.mode in ['embedding', 'fusion']:
             self.preloaded_embeddings = {}
             print(f"Pre-loading {len(self.samples)} embedding samples from .npy files...")
+            num_failed = 0
             
             for record_id, task_name, _ in tqdm(self.samples, desc="Pre-loading embeddings"):
                 sample_key = (record_id, task_name)
@@ -101,10 +103,20 @@ class PatientTaskDataset(Dataset):
                 except FileNotFoundError:
                     # Mark sample as invalid if file doesn't exist
                     self.preloaded_embeddings[sample_key] = None
+                    num_failed += 1 # Increment failure count
                 except Exception as e:
                     # Catch any other loading errors
                     print(f"!!! An unexpected error occurred while loading {npy_path}: {e}. Skipping sample.")
                     self.preloaded_embeddings[sample_key] = None
+                    num_failed += 1 # Increment failure count
+
+            total_samples = len(self.samples)
+            if total_samples > 0 and (num_failed / total_samples) > 0.9:
+                raise RuntimeError(
+                    f"FATAL: Pre-loading failed for {num_failed}/{total_samples} samples. "
+                    "This is likely due to an incorrect embedding path or file naming convention. "
+                    "Please check your --embedding_path and dataloader logic."
+                )
 
     def __len__(self):
         return len(self.samples)

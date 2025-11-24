@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class ExplainableMLP(nn.Module):
-    def __init__(self, input_size, hidden_size=128, num_hidden_layers=2, dropout_rate=0.25):
+    def __init__(self, input_size, hidden_size=128, num_hidden_layers=2, dropout_rate=0.5):
         """
         A simple Multi-Layer Perceptron for binary classification.
 
@@ -182,10 +182,10 @@ class WeightedEmbeddingMLP(nn.Module):
             nn.Linear(features_per_layer, hidden_size),
             nn.ReLU(),
             nn.Dropout(dropout_rate),
-            nn.Linear(hidden_size, hidden_size),
+            nn.Linear(hidden_size, hidden_size // 2),
             nn.ReLU(),
             nn.Dropout(dropout_rate),
-            nn.Linear(hidden_size, 1) # Final output layer
+            nn.Linear(hidden_size // 2, 1) # Final output layer
         )
 
     def forward(self, x):

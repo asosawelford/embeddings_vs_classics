@@ -207,3 +207,5 @@ features
 metadata
 
 __pycache__
+results/
+plots/

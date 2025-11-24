@@ -1,0 +1,22 @@
+optimizar hiperparametros:
+	dropout
+	hidden size
+
+también tamaño de la capa intermedia, y hacer que la ultima sea la mitad de la anterior
+
+Hacerlo para
+	-all tasks
+	-all except CraftDe
+	-Fugu
+	-CraftIm
+	-Fluency
+
+hacer majority voting
+
+-------------||||||||||||||||||||----------
+Layer weight, hacer con task all o excpet CraftDe un histograma con error bars
+
+
+-------------||||||||||||||||||||----------
+
+Acoustic Word embeddings
