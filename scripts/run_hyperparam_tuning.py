@@ -11,7 +11,7 @@ import itertools
 # ==============================================================================
 
 # --- Benchmark Settings ---
-NUM_OUTER_SPLITS = 3
+NUM_OUTER_SPLITS = 1
 NUM_INNER_FOLDS = 3
 TEST_SIZE = 0.2
 
@@ -24,8 +24,8 @@ ALL_META_PATHS = [
 
 # --- Hyperparameter Grid for Tuning ---
 HYPERPARAM_GRID = {
-    "hidden_size": [512,1024],
-    "dropout": [0.3, 0.4]
+    "hidden_size": [1024],
+    "dropout": [0.6, 0.8]
 }
 
 # --- Fixed Training Parameters ---

@@ -2,11 +2,8 @@ optimizar hiperparametros:
 	dropout
 	hidden size
 
-también tamaño de la capa intermedia, y hacer que la ultima sea la mitad de la anterior
-
 Hacerlo para
 	-all tasks
-	-all except CraftDe
 	-Fugu
 	-CraftIm
 	-Fluency
@@ -20,3 +17,20 @@ Layer weight, hacer con task all o excpet CraftDe un histograma con error bars
 -------------||||||||||||||||||||----------
 
 Acoustic Word embeddings
+
+
+-------------||||||||||||||||||||----------
+interasantes:
+Fugu solo tiene casi la misma performance que all tasks
+Fugu tienen pesos aprendidos similares a all tasks, mientras que flunecy que da peor,
+tiene pesos más uniformes
+
+-------------||||||||||||||||||||----------
+
+The Next Frontier
+0. Balanced and COMPLETE Redlat dataset
+
+1. Weighted Ensemble: Hard voting treats each specialist's vote equally. But are they all equally skilled? You could evaluate each specialist model (video, fluency, story) on its own and find their individual UARs. Then, you could create a "weighted soft vote" where the prediction from the most accurate specialist gets a higher weight in the final average. For example: (0.5 * fluency_prob) + (0.3 * story_prob) + (0.2 * video_prob).
+
+2. Bring Back Fusion: The "holy grail" might be an ensemble of fused models. You could train three specialist models where each one is a FusionANN that uses both the embedding features for its specific tasks and the clinical features (pitch, timing). This is a very powerful concept that combines all the techniques you've learned.
+

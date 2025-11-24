@@ -48,74 +48,77 @@ def collate_fn(batch, fixed_clinical_len=None):
 
 
 class PatientTaskDataset(Dataset):
+    # --- ADD 'tasks_to_load' to the __init__ signature ---
     def __init__(self, metadata_path, clinical_feature_paths, embedding_path, mode, imputation_means_path, 
-                 scaling_params_path, classes_to_load, embedding_layers=None): # embedding_layers is no longer used but kept for compatibility
+                 scaling_params_path, classes_to_load, embedding_layers=None, tasks_to_load=None):
         
         self.mode = mode
         self.embedding_path = embedding_path
         self.classes_to_load = classes_to_load
 
-        # 1. Load metadata and filter for the binary task
+        # 1. Load metadata and filter
         metadata_df = pd.read_csv(metadata_path)
         metadata_df = metadata_df[metadata_df['clinical_diagnosis'].isin(self.classes_to_load)]
 
         # 2. Create labels map
         self.labels_map = {self.classes_to_load[0]: 0, self.classes_to_load[1]: 1}
         
-        # (Clinical feature loading commented out as in your example)
-        # if self.mode in ['clinical', 'fusion']:
-        #     ...
-        
         # 3. Create the master list of samples
         self.samples = []
-        tasks = ['CraftIm', 'CraftDe' 'Phonological', 'Phonological2', 'Semantic', 'Semantic2', 'Fugu']
-        # tasks = ['Fugu']
+        
+        # --- THIS IS THE KEY CHANGE ---
+        if tasks_to_load is None:
+            # If no specific tasks are provided, default to all of them
+            tasks = ['CraftIm', 'CraftDe','Phonological', 'Phonological2', 'Semantic', 'Semantic2', 'Fugu']
+        else:
+            # Otherwise, use the list that was passed in
+            tasks = tasks_to_load
+        
+        print(f"Dataloader will load the following tasks: {tasks}")
+        # --- END CHANGE ---
+
         for _, row in metadata_df.iterrows():
             record_id = row['record_id']
             diagnosis = row['clinical_diagnosis']
-            for task_name in tasks:
+            for task_name in tasks: # This now uses the dynamic list
                 self.samples.append((record_id, task_name, diagnosis))
 
-        # --- RE-IMPLEMENTING PRE-LOADING STRATEGY for .npy files ---
+        # --- PRE-LOADING (Your existing code is correct) ---
         if self.mode in ['embedding', 'fusion']:
             self.preloaded_embeddings = {}
             print(f"Pre-loading {len(self.samples)} embedding samples from .npy files...")
             num_failed = 0
             
+            # --- ADD A FLAG TO PRINT THE DEBUG MESSAGE ONLY ONCE ---
+            first_fail_reported = False
+
             for record_id, task_name, _ in tqdm(self.samples, desc="Pre-loading embeddings"):
                 sample_key = (record_id, task_name)
                 
                 if sample_key in self.preloaded_embeddings:
                     continue
 
-                # Your file path structure
                 npy_path = os.path.join(self.embedding_path, record_id, f"REDLAT_{record_id}_{task_name}.npy")
                 
                 try:
-                    # --- THIS IS THE FIX ---
-                    # Load the .npy file directly without a 'with' statement.
                     embedding_array = np.load(npy_path)
-                    
-                    # Convert to a flattened torch tensor.
                     embedding_tensor = torch.tensor(embedding_array, dtype=torch.float32)
                     self.preloaded_embeddings[sample_key] = embedding_tensor
-
                 except FileNotFoundError:
-                    # Mark sample as invalid if file doesn't exist
+                    if not first_fail_reported:
+                        print(f"\n\n--- DEBUG: File not found at this path ---\n{npy_path}\n--- Please verify path and naming. Further errors will be silent. ---\n")
+                        first_fail_reported = True
                     self.preloaded_embeddings[sample_key] = None
-                    num_failed += 1 # Increment failure count
+                    num_failed += 1
                 except Exception as e:
-                    # Catch any other loading errors
-                    print(f"!!! An unexpected error occurred while loading {npy_path}: {e}. Skipping sample.")
                     self.preloaded_embeddings[sample_key] = None
-                    num_failed += 1 # Increment failure count
-
+                    num_failed += 1
+            
+            # --- Your safety check (this is good to keep) ---
             total_samples = len(self.samples)
             if total_samples > 0 and (num_failed / total_samples) > 0.9:
                 raise RuntimeError(
-                    f"FATAL: Pre-loading failed for {num_failed}/{total_samples} samples. "
-                    "This is likely due to an incorrect embedding path or file naming convention. "
-                    "Please check your --embedding_path and dataloader logic."
+                    f"FATAL: Pre-loading failed for {num_failed}/{total_samples} samples."
                 )
 
     def __len__(self):

@@ -110,7 +110,8 @@ def main():
             "--batch_size", "32",
             "--lr", "0.0001",
             "--lr_weights", "0.001",
-            "--hidden_size", "256",
+            "--hidden_size", "1024",
+            "--dropout", "0.4",
             "--results_dir", results_dir,
             "--plots_dir", plots_dir,
         ]

@@ -136,7 +136,8 @@ def main(args):
         imputation_means_path=args.imputation_means,
         scaling_params_path=args.scaling_params,
         classes_to_load=args.classes,
-        embedding_layers=args.embedding_layers
+        embedding_layers=args.embedding_layers,
+        tasks_to_load=args.tasks
     )
 
     val_dataset = PatientTaskDataset(
@@ -147,7 +148,8 @@ def main(args):
         imputation_means_path=args.imputation_means,
         scaling_params_path=args.scaling_params,
         classes_to_load=args.classes,
-        embedding_layers=args.embedding_layers
+        embedding_layers=args.embedding_layers,
+        tasks_to_load=args.tasks    
     )
 
     # 3. Setup Model
@@ -354,7 +356,8 @@ def main(args):
         imputation_means_path=args.imputation_means,
         scaling_params_path=args.scaling_params,
         classes_to_load=args.classes,
-        embedding_layers=args.embedding_layers
+        embedding_layers=args.embedding_layers,
+        tasks_to_load=args.tasks
     )
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, collate_fn=collate_function)
 
@@ -478,13 +481,14 @@ if __name__ == '__main__':
     parser.add_argument('--classes', nargs='+', required=True, help="List of two classes for binary task (e.g., CN AD)")
     parser.add_argument('--mode', type=str, default='clinical', choices=['clinical', 'embedding', 'fusion'], help='Model mode')
     parser.add_argument('--embedding_layers', type=int, nargs='+', default=[0, 8, 11], help='WavLM layers to use')
-    
+    parser.add_argument('--tasks', nargs='+', default=None, help='A list of specific tasks to load for training (e.g., Fugu CraftIm).')
+
     # --- Hyperparameters ---
     parser.add_argument('--lr', type=float, default=1e-4, help='Learning rate')
     parser.add_argument('--epochs', type=int, default=50, help='Number of training epochs')
     parser.add_argument('--batch_size', type=int, default=16, help='Batch size')
     parser.add_argument('--hidden_size', type=int, default=128, help='Hidden layer size for MLP')
-    parser.add_argument('--dropout', type=float, default=0.5, help='Dropout rate')
+    parser.add_argument('--dropout', type=float, default=0.4, help='Dropout rate')
     parser.add_argument('--patience', type=int, default=20, help='Epochs to wait for improvement before stopping early.')
 
     args = parser.parse_args()
