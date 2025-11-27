@@ -196,3 +196,75 @@ class WeightedEmbeddingMLP(nn.Module):
         output = self.network_body(weighted_x)
         
         return output
+    
+
+class LearnableStatPoolingMLP(nn.Module):
+    def __init__(self, num_layers, features_per_layer, hidden_size, dropout_rate):
+        super().__init__()
+        
+        # Part 1: The learnable layer averager
+        self.layer_averager = WeightedAverage(num_layers)
+        
+        # Part 2: The final MLP classifier head
+        # The input size is features_per_layer * 2 (for mean + std dev)
+        mlp_input_size = features_per_layer * 2
+        
+        self.classifier = nn.Sequential(
+            nn.Linear(mlp_input_size, hidden_size),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(hidden_size, hidden_size // 2),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(hidden_size // 2, 1)
+        )
+
+    def forward(self, x, lengths):
+        # x shape: (batch_size, seq_len, num_layers, features)
+        
+        # 1. Apply learnable weighted average across the layer dimension
+        batch_size, seq_len, num_layers, features = x.shape
+        x_reshaped = x.view(batch_size * seq_len, num_layers, features)
+        word_vectors_reshaped = self.layer_averager(x_reshaped)
+        word_vectors = word_vectors_reshaped.view(batch_size, seq_len, features)
+        
+        # 2. Perform Statistical Pooling (mean + std), ignoring padding
+        pooled_vectors = []
+        for i in range(batch_size):
+            # Get the non-padded sequence for this sample
+            sequence = word_vectors[i, :lengths[i], :]
+            
+            # The number of actual words in this sequence
+            num_words = sequence.shape[0]
+
+            # This should not happen with a good dataloader, but it's a robust safety check
+            if num_words == 0:
+                # If there are no words, the feature is just zeros
+                # The size is features * 2 (for mean + std)
+                final_features = torch.zeros(features * 2, device=x.device, dtype=x.dtype)
+            
+            else:
+                # Calculate the mean vector
+                mean_vec = torch.mean(sequence, dim=0)
+                
+                # --- THIS IS THE FIX ---
+                if num_words > 1:
+                    # If we have more than one word, calculate std dev normally
+                    std_vec = torch.std(sequence, dim=0)
+                else:
+                    # If there is only one word, its standard deviation is a vector of zeros.
+                    # We create a zero tensor with the same shape, device, and dtype as the mean vector.
+                    std_vec = torch.zeros_like(mean_vec)
+                # --- END FIX ---
+                
+                # Concatenate the final feature vector
+                final_features = torch.cat([mean_vec, std_vec])
+            
+            pooled_vectors.append(final_features)
+            
+        # Stack the results into a single batch tensor
+        # -> (batch_size, features * 2)
+        final_batch_features = torch.stack(pooled_vectors)
+        
+        # 3. Classify the final feature vector
+        return self.classifier(final_batch_features)

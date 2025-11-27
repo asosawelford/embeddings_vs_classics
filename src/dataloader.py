@@ -1,8 +1,8 @@
-import json
 import pandas as pd
 import numpy as np
 import torch
 from torch.utils.data import Dataset
+from torch.nn.utils.rnn import pad_sequence
 from tqdm import tqdm
 import os
 
@@ -147,3 +147,107 @@ class PatientTaskDataset(Dataset):
             data_dict['embedding_feats'] = embedding_tensor
 
         return data_dict
+
+# This is a new collate function specifically for sequences of variable length.
+def pad_collate_fn(batch):
+    """
+    Pads sequences to the length of the longest sequence in a batch.
+    
+    Args:
+        batch (list of dicts): A list where each dict is an output from WordSequenceDataset.
+                               Each dict must contain 'embedding_feats'.
+    
+    Returns:
+        A dictionary with padded embeddings, original lengths, labels, and record_ids.
+    """
+    # Filter out None items, if any
+    batch = [item for item in batch if item is not None]
+    if not batch:
+        return None
+
+    # --- 1. Get original lengths of each sequence ---
+    # This is crucial for the model to ignore padding during calculations.
+    lengths = torch.tensor([item['embedding_feats'].shape[0] for item in batch])
+
+    # --- 2. Pad the embedding sequences ---
+    # pad_sequence expects a list of tensors
+    sequences = [item['embedding_feats'] for item in batch]
+    # batch_first=True makes the output shape (batch_size, seq_len, num_layers, features)
+    padded_embeddings = pad_sequence(sequences, batch_first=True, padding_value=0.0)
+
+    # --- 3. Stack labels and gather record_ids ---
+    labels = torch.stack([item['label'] for item in batch])
+    record_ids = [item['record_id'] for item in batch]
+    
+    return {
+        'embedding_feats': padded_embeddings,
+        'lengths': lengths,
+        'label': labels,
+        'record_id': record_ids
+    }
+
+
+class WordSequenceDataset(Dataset):
+    """
+    Dataset to load the pre-processed word sequence tensors from a single .pt file.
+    It matches embeddings with labels from a metadata CSV.
+    """
+    def __init__(self, metadata_path, word_embedding_data, classes_to_load):
+        
+        self.classes_to_load = classes_to_load
+
+        # 1. Use the pre-loaded data directly
+        # The data is expected to be a dictionary: (record_id, task) -> tensor
+        self.embedding_map = word_embedding_data
+
+        # 2. Load metadata to get labels and create samples
+        metadata_df = pd.read_csv(metadata_path)
+        metadata_df = metadata_df[metadata_df['clinical_diagnosis'].isin(self.classes_to_load)]
+        self.labels_map = {self.classes_to_load[0]: 0, self.classes_to_load[1]: 1}
+
+        self.samples = []
+        print("Matching metadata with loaded embeddings...")
+        for _, row in metadata_df.iterrows():
+            record_id = row['record_id']
+            # We assume 'task' column exists in metadata, or we can iterate through all possible tasks
+            # For now, let's assume a 'task' column exists. If not, this needs adjustment.
+            
+            # --- This part is flexible depending on your metadata ---
+            # Simplified: Assuming you have a 'task' column in your metadata.csv
+            if 'task' in row:
+                tasks = [row['task']]
+            else: # If no task column, check against all tasks for that ID
+                tasks = ['CraftIm', 'Semantic', 'Fugu'] # Or any other relevant tasks
+
+            for task in tasks:
+                if (record_id, task) in self.embedding_map:
+                    self.samples.append({
+                        'record_id': record_id,
+                        'task': task,
+                        'label': self.labels_map[row['clinical_diagnosis']]
+                    })
+
+        print(f"Successfully created {len(self.samples)} samples with corresponding labels.")
+        if len(self.samples) == 0:
+            raise ValueError("No matching samples found between metadata and embedding file. Check record_id/task names.")
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, idx):
+        sample_info = self.samples[idx]
+        record_id = sample_info['record_id']
+        task = sample_info['task']
+        
+        # Retrieve the embedding tensor
+        # Shape: [Num_Words, 13, 768]
+        embedding_tensor = self.embedding_map.get((record_id, task))
+        
+        if embedding_tensor is None or embedding_tensor.shape[0] == 0:
+            return None
+
+        return {
+            'embedding_feats': embedding_tensor,
+            'label': torch.tensor(sample_info['label'], dtype=torch.long),
+            'record_id': record_id,
+        }

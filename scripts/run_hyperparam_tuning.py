@@ -11,7 +11,7 @@ import itertools
 # ==============================================================================
 
 # --- Benchmark Settings ---
-NUM_OUTER_SPLITS = 1
+NUM_OUTER_SPLITS = 5
 NUM_INNER_FOLDS = 3
 TEST_SIZE = 0.2
 
