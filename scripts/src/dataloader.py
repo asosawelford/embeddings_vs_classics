@@ -70,6 +70,7 @@ class PatientTaskDataset(Dataset):
         if tasks_to_load is None:
             # If no specific tasks are provided, default to all of them
             tasks = ['CraftIm', 'CraftDe','Phonological', 'Phonological2', 'Semantic', 'Semantic2', 'Fugu']
+            tasks = ['Fugu']
         else:
             # Otherwise, use the list that was passed in
             tasks = tasks_to_load

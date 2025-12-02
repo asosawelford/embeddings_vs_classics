@@ -5,6 +5,7 @@ from torch.utils.data import Dataset
 from torch.nn.utils.rnn import pad_sequence
 from tqdm import tqdm
 import os
+from pathlib import Path
 
 
 def collate_fn(batch, fixed_clinical_len=None):
@@ -251,3 +252,93 @@ class WordSequenceDataset(Dataset):
             'label': torch.tensor(sample_info['label'], dtype=torch.long),
             'record_id': record_id,
         }
+
+class DiskEmbeddingsDataset(Dataset):
+    def __init__(self, metadata_df, embeddings_dir, classes, pos_filter=None):
+        """
+        Args:
+            metadata_df (pd.DataFrame): Must contain 'record_id' and 'clinical_diagnosis'.
+            embeddings_dir (str): Folder containing the .pt files.
+            classes (list): e.g., ['AD', 'CN'].
+            pos_filter (list, optional): e.g., ['NOUN', 'VERB']. If None, uses all words.
+        """
+        self.embeddings_dir = Path(embeddings_dir)
+        self.pos_filter = pos_filter
+        
+        # Filter metadata to only keep relevant classes
+        self.meta = metadata_df[metadata_df['clinical_diagnosis'].isin(classes)].copy()
+        self.label_map = {classes[0]: 0, classes[1]: 1} # Binary
+        
+        # --- INDEXING ---
+        # We need to map record_id -> list of file paths
+        # Filename format expected: "{record_id}_{task}_embeddings.pt"
+        self.file_map = {}
+        
+        # Scan directory once
+        print(f"Indexing .pt files in {embeddings_dir}...")
+        all_files = list(self.embeddings_dir.glob("*.pt"))
+        
+        for fpath in all_files:
+            # Parse ID from filename (assumes id is the first part before the first underscore)
+            # Adjust logic if your IDs contain underscores!
+            # Current assumption: "001_task_embeddings.pt" -> id "001"
+            fname = fpath.name
+            possible_id = fname.split('_')[0] 
+            
+            if possible_id not in self.file_map:
+                self.file_map[possible_id] = []
+            self.file_map[possible_id].append(fpath)
+            
+        # Filter samples: Keep only those that have at least one audio file
+        self.samples = []
+        missing = 0
+        for _, row in self.meta.iterrows():
+            rid = str(row['record_id'])
+            lbl = self.label_map[row['clinical_diagnosis']]
+            
+            if rid in self.file_map:
+                # A patient might have multiple tasks (files). 
+                # We treat each FILE as a training sample.
+                for fpath in self.file_map[rid]:
+                    self.samples.append({
+                        'record_id': rid,
+                        'label': lbl,
+                        'path': fpath
+                    })
+            else:
+                missing += 1
+                
+        print(f"Dataset ready. {len(self.samples)} audio samples found. ({missing} patients missing files)")
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, idx):
+        item = self.samples[idx]
+        path = item['path']
+        label = item['label']
+        
+        try:
+            # LOAD FROM DISK
+            data = torch.load(path, weights_only=True)
+            tensor = data['embeddings'] # [Words, 13, 768]
+            metadata = data['metadata']
+            
+            # OPTIONAL: POS Filtering
+            if self.pos_filter:
+                indices = [i for i, m in enumerate(metadata) if m['pos'] in self.pos_filter]
+                if not indices:
+                    # No matching words found (e.g., no Verbs in this file)
+                    # Return a dummy zero tensor to avoid crashing
+                    return None 
+                tensor = tensor[indices]
+
+            return {
+                'embedding_feats': tensor,
+                'label': torch.tensor(label, dtype=torch.long),
+                'record_id': item['record_id']
+            }
+            
+        except Exception as e:
+            print(f"Error loading {path}: {e}")
+            return None

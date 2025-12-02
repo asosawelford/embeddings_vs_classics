@@ -6,7 +6,7 @@ from tqdm import tqdm
 
 # ================= CONFIGURATION =================
 # Directory containing your .pt files
-INPUT_DIR = "final_embeddings" 
+INPUT_DIR = "/home/aleph/redlat/embeddings/processed_word_embeddings.pt" 
 
 # Where to save the report of bad files
 REPORT_FILE = "verification_report.csv"

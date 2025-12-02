@@ -36,3 +36,40 @@ próximos pasos
 2. Fusion
 
 3. SHAP Caccia
+
+
+1 solo lenguaje (word properties) vs lenguaje + acústica (wavlm)*
+2 operacionalizar las 4 categorías como distintas (Noun*  Verb Adj)
+	importante hacer noun vs verb
+
+*Para ver si mejor la clasificacion al sumar la representacion acustica ¿hay infomacion en el acto articulatorio de las palabras?
+
+
+simposio
+y mencionar la colab del proyecto de redlat 
+yo trabajando blabla y freddy blabla
+
+
+
+Time-pooled WavLM Base+
+
+| task group                                 | UAR ↑(AD vs CN) | 
+|--------------------------------------------|-----------------|
+| All                                        | 0.8561 ± 0.0257 |
+| All except CraftDe                         | 0.7935 ± 0.0217 |
+| Fugu                                       | 0.8012 ± 0.0224 |
+| CraftIm                                    | 0.7148 ± 0.0217 |
+| Fluency                                    | 0.6866 ± 0.0621 |
+| Majority Voting (Fugu + CraftIm + Fluency)                   |
+| Soft Voting (Averaging Probabilities)      | 0.8286 ±        |
+| Hard Voting (Majority Vote)                | 0.8440 ±        |
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+Filtered content words, WavLM Base+ (mean+stdev)
+
+| All except CraftDe    (256, 0.5)           | 0.7995 ± 0.2310 |
+| All except CraftDe    (1024, 0.3)          | 0.8250 ± 0.0267 |
+

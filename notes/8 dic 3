@@ -1,0 +1,30 @@
+Phase 1: The "Matched" Rerun (Audio Only)
+Goal: Establish a baseline using the WavLM embeddings we just created, but strictly controlling for your new demographics (HC vs AD vs FTD).
+
+Input: Your new .csv with the matched groups.
+Action: We will write a Dataset class that reads this CSV, and only loads the .pt files corresponding to those specific IDs.
+Strategy: Stratified 5-Fold Cross-Validation.
+Aggregation: Since we have word-level embeddings but need a patient-level prediction, we will start with Global Average Pooling (averaging all word vectors for a patient). It is simple and robust.
+Phase 2: The "Linguistic" Classifier (Text Only)
+Goal: Train a model using only the metadata (Concreteness, Frequency, Syllables, etc.).
+
+The Challenge: Alignment.
+We have transcripts: "The dog barked"
+We have a database (ESPAL/Concreteness): dog: {conc: 5, freq: 100}, barked: {conc: 3, freq: 50}.
+Crucial Step: We need to create a Lookup Function. When the DataLoader reads a patient's file, it must look up every word in your psycholinguistic databases.
+Normalization: WavLM features are floats around -1 to 1. Frequency data might be 0 to 1,000,000. We must apply StandardScaler or MinMax scaling to these linguistic features, or the classifier will explode.
+Phase 3: The Fusion (Audio + Text)
+Goal: Combine [1, 768] audio vectors with [1, N_Features] text vectors.
+
+My Recommendation: Early Fusion (Concatenation)
+For every word, we have a vector $V_{audio}$ (768 dims) and $V_{text}$ (e.g., 8 dims).
+We concatenate them $\rightarrow$ $V_{combined}$ (776 dims).
+Note on Dimension Imbalance: 768 vs 8 is a huge gap. The model might ignore the text features because the audio vector is so much larger.
+Fix: We might pass the 8 text features through a tiny neural network (a Linear Layer) to project them up to size 32 or 64 before combining, giving them more "weight" in the final vector.
+Phase 4: POS-Specific Analysis
+Goal: "Does the Verb-only model perform better than the Noun-only model?"
+
+Execution: This is easy. We filter the .pt metadata inside the DataLoader.
+if pos == 'VERB': keep
+else: discard
+This often yields the most interesting results in papers (e.g., "Verbs degrade faster in FTD").
