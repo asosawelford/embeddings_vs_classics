@@ -13,7 +13,7 @@ from torch.utils.data import TensorDataset, DataLoader
 
 # ================= CONFIGURATION =================
 DEFAULT_TASKS = ['CraftIm', 'Phonological', 'Phonological2', 'Semantic', 'Semantic2', 'Fugu']
-DEFAULT_FEATURES = ["concreteness", "granularity", "mean_num_syll", "mean_phon_neigh", "mean_log_frq", "pitch", "timing"]
+DEFAULT_FEATURES = ["concreteness", "granularity", "mean_num_syll", "mean_phon_neigh", "mean_log_frq"]
 # =================================================
 
 class LinguisticMLP(nn.Module):

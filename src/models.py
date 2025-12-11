@@ -268,3 +268,46 @@ class LearnableStatPoolingMLP(nn.Module):
         
         # 3. Classify the final feature vector
         return self.classifier(final_batch_features)
+
+
+class FusionMLP(nn.Module):
+    def __init__(self, acoustic_dim, linguistic_dim, hidden_size, dropout_rate):
+        super().__init__()
+        
+        # Branch 1: Acoustic Expert
+        self.acoustic_branch = nn.Sequential(
+            nn.Linear(acoustic_dim, hidden_size),
+            nn.BatchNorm1d(hidden_size),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate)
+        )
+        
+        # Branch 2: Linguistic Expert
+        self.linguistic_branch = nn.Sequential(
+            nn.Linear(linguistic_dim, hidden_size // 2), # Smaller branch for smaller input
+            nn.BatchNorm1d(hidden_size // 2),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate)
+        )
+        
+        # Head: Fuses the outputs of the two branches
+        fusion_input_dim = hidden_size + (hidden_size // 2)
+        self.fusion_head = nn.Sequential(
+            nn.Linear(fusion_input_dim, hidden_size // 2),
+            nn.BatchNorm1d(hidden_size // 2),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(hidden_size // 2, 1) # Final output
+        )
+        
+    def forward(self, x_acoustic, x_linguistic):
+        # Process each modality independently
+        acoustic_out = self.acoustic_branch(x_acoustic)
+        linguistic_out = self.linguistic_branch(x_linguistic)
+        
+        # Concatenate (fuse) the expert opinions
+        fused_vector = torch.cat([acoustic_out, linguistic_out], dim=1)
+        
+        # Make the final decision
+        output = self.fusion_head(fused_vector)
+        return output

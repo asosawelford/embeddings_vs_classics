@@ -1,0 +1,4 @@
+base:
+    
+metadata contiene el siguiente dataset: REDLAT_fugu_full_buffer0_emparejado_GLOBAL_additive
+el cual tienen empreajados los grupos de CN, AD y DFT, con participantes que contienen las 6 tareas cognitivas
