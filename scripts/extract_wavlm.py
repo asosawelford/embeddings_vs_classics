@@ -85,10 +85,11 @@ def main(args):
             for i, layer_hidden_state in enumerate(outputs.hidden_states):
                 unbatched_hidden_state = layer_hidden_state.squeeze(0)
                 unpadded_hidden_state = unbatched_hidden_state[:num_valid_frames, :]
-                cpu_embedding = unpadded_hidden_state.cpu().numpy()
+                averaged_hidden_state = torch.mean(unpadded_hidden_state, dim=0) #AVERAGE across time
+                cpu_embedding = averaged_hidden_state.cpu().numpy()                
                 all_layer_embeddings[f'layer_{i}'] = cpu_embedding
             
-            # --- Save all layers' time-step embeddings to the new path ---
+            # --- Save all layers' time-pooled embeddings to the new path ---
             np.savez_compressed(output_filename, **all_layer_embeddings)
 
         except Exception as e:
