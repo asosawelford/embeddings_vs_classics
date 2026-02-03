@@ -7,22 +7,19 @@ from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.impute import KNNImputer
 
 class AlzheimerDataset(Dataset):
-    def __init__(self, features, labels, record_ids, tasks):
+    def __init__(self, features, labels, features_text=None): # Added optional text
         self.features = torch.FloatTensor(features)
         self.labels = torch.LongTensor(labels)
-        self.record_ids = record_ids
-        self.tasks = tasks
+        self.features_text = torch.FloatTensor(features_text) if features_text is not None else None
 
     def __len__(self):
         return len(self.labels)
 
     def __getitem__(self, idx):
-        return {
-            'features': self.features[idx],
-            'label': self.labels[idx],
-            'record_id': self.record_ids[idx],
-            'task': self.tasks[idx]
-        }
+        batch = {'features': self.features[idx], 'label': self.labels[idx]}
+        if self.features_text is not None:
+            batch['features_text'] = self.features_text[idx]
+        return batch
 
 class DataManager:
     def __init__(self, metadata_path, target_groups=['AD', 'CN']):
@@ -211,3 +208,49 @@ class DataManager:
         X_test, y_test, id_test, t_test, _, _ = _expand_classic(test_df, False, imputer=imp, scaler=scl)
         
         return (X_train, y_train, id_train, t_train), (X_test, y_test, id_test, t_test)
+    
+    def load_paired_embeddings(self, df, wavlm_dir, roberta_dir, tasks):
+        """
+        Loads WavLM AND RoBERTa features. 
+        Only keeps samples where BOTH exist.
+        """
+        X_audio = []
+        X_text = []
+        y = []
+        
+        # Load WavLM first (it's usually the stricter one due to missing files)
+        # We reuse existing logic but customized for intersection
+        
+        for _, row in df.iterrows():
+            record_id = row['record_id']
+            site = row['site']
+            label = row['label_encoded']
+            
+            for task in tasks:
+                # Paths
+                path_wav = Path(wavlm_dir) / site / record_id / f"REDLAT_{record_id}_{task}.npz"
+                path_rob = Path(roberta_dir) / site / record_id / f"REDLAT_{record_id}_{task}.npz"
+                
+                # Check BOTH exist
+                if not path_wav.exists() or not path_rob.exists():
+                    continue # Skip if either is missing
+                
+                try:
+                    # Load WavLM
+                    data_w = np.load(path_wav)
+                    if 'embeddings' in data_w: emb_w = data_w['embeddings']
+                    else: emb_w = np.stack([data_w[f'layer_{i}'] for i in range(13)])
+                    
+                    # Load RoBERTa
+                    data_r = np.load(path_rob)
+                    if 'embedding' in data_r: emb_r = data_r['embedding']
+                    else: emb_r = data_r['embeddings']
+                    
+                    X_audio.append(emb_w)
+                    X_text.append(emb_r)
+                    y.append(label)
+                    
+                except Exception as e:
+                    print(f"Error loading pair for {record_id}: {e}")
+                    
+        return np.array(X_audio), np.array(X_text), np.array(y)

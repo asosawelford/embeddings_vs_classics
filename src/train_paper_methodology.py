@@ -50,7 +50,33 @@ SPACE = [
     Categorical([128, 256, 512], name='hidden')
 ]
 
-# --- LOGGING SETUP ---
+# --- HELPER: Create Differential Optimizer ---
+def get_optimizer(model, base_lr):
+    """
+    Sets base_lr for the model, but forces a higher LR (0.01) 
+    for the WavLM WeightedAverageLayer weights.
+    """
+    agg_params = []
+    rest_params = []
+    
+    for name, param in model.named_parameters():
+        # Identify the learnable weights in aggregator
+        if ('aggregator.weights' in name) or ('wavlm_agg.weights' in name):
+            agg_params.append(param)
+        else:
+            rest_params.append(param)
+            
+    if len(agg_params) > 0:
+        # Differential Learning Rates
+        return optim.Adam([
+            {'params': rest_params, 'lr': base_lr},
+            {'params': agg_params, 'lr': 0.01} # Force higher LR for weights
+        ])
+    else:
+        # Standard Optimizer (for Classic/RoBERTa)
+        return optim.Adam(model.parameters(), lr=base_lr)
+
+
 def setup_experiment(args):
     """Creates output folder and sets up logging."""
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -100,7 +126,13 @@ def train_model_epoch(model, loader, optimizer, criterion, device):
         feats = batch['features'].to(device)
         lbls = batch['label'].to(device).float()
         optimizer.zero_grad()
-        logits = model(feats).squeeze(1)
+        
+        if 'features_text' in batch:
+            feats_text = batch['features_text'].to(device)
+            logits = model(feats, feats_text).squeeze(1)
+        else:
+            logits = model(feats).squeeze(1)
+
         loss = criterion(logits, lbls)
         loss.backward()
         optimizer.step()
@@ -114,7 +146,13 @@ def evaluate(model, loader, device):
         for batch in loader:
             feats = batch['features'].to(device)
             lbls = batch['label'].to(device).float()
-            logits = model(feats).squeeze(1)
+            
+            if 'features_text' in batch:
+                feats_text = batch['features_text'].to(device)
+                logits = model(feats, feats_text).squeeze(1)
+            else:
+                logits = model(feats).squeeze(1)
+            
             probs = torch.sigmoid(logits).cpu().numpy()
             preds.extend(probs)
             targets.extend(lbls.cpu().numpy())
@@ -158,7 +196,6 @@ def main(args):
         
         for fold_idx, (train_ix, test_ix) in enumerate(outer_cv.split(all_patients, labels_for_split)):
             logging.info(f"   Outer Fold {fold_idx+1}/{OUTER_FOLDS}")
-            
             outer_train_pats = all_patients[train_ix]
             outer_test_pats = all_patients[test_ix]
             
@@ -172,23 +209,32 @@ def main(args):
                 for in_tr_ix, in_val_ix in inner_cv.split(outer_train_pats, inner_labels):
                     in_train_pats = outer_train_pats[in_tr_ix]
                     in_val_pats = outer_train_pats[in_val_ix]
-                    
                     df_tr, df_val = manager.split_patients(in_train_pats, in_val_pats)
                     
-                    if args.model_type == 'classic':
-                        (X_tr, y_tr, i_tr, t_tr), (X_val, y_val, i_val, t_val) = \
-                            manager.load_classic_features(df_tr, df_val, args.classic_csv, args.tasks, subset=args.classic_subset)
+                    if args.model_type == 'fusion':
+                        X_w, X_r, y = manager.load_paired_embeddings(df_tr, args.embedding_dir, args.roberta_dir, args.tasks)
+                        ds_tr = AlzheimerDataset(X_w, y, features_text=X_r)
+                        X_w_v, X_r_v, y_v = manager.load_paired_embeddings(df_val, args.embedding_dir, args.roberta_dir, args.tasks)
+                        ds_val = AlzheimerDataset(X_w_v, y_v, features_text=X_r_v)
+                        input_dim = None
+                    elif args.model_type == 'classic':
+                        (X_tr, y_tr, _, _), (X_val, y_val, _, _) = manager.load_classic_features(df_tr, df_val, args.classic_csv, args.tasks, subset=args.classic_subset)
+                        ds_tr = AlzheimerDataset(X_tr, y_tr)
+                        ds_val = AlzheimerDataset(X_val, y_val)
                         input_dim = X_tr.shape[1]
                     else:
-                        X_tr, y_tr, i_tr, t_tr = manager.load_embeddings(df_tr, args.embedding_dir, args.tasks, args.model_type)
-                        X_val, y_val, i_val, t_val = manager.load_embeddings(df_val, args.embedding_dir, args.tasks, args.model_type)
+                        X_tr, y_tr, _, _ = manager.load_embeddings(df_tr, args.embedding_dir, args.tasks, args.model_type)
+                        X_val, y_val, _, _ = manager.load_embeddings(df_val, args.embedding_dir, args.tasks, args.model_type)
+                        ds_tr = AlzheimerDataset(X_tr, y_tr)
+                        ds_val = AlzheimerDataset(X_val, y_val)
                         input_dim = X_tr.shape[1] if args.model_type == 'roberta' else None
 
-                    dl_tr = DataLoader(AlzheimerDataset(X_tr, y_tr, i_tr, t_tr), batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
-                    dl_val = DataLoader(AlzheimerDataset(X_val, y_val, i_val, t_val), batch_size=BATCH_SIZE, shuffle=False)
+                    dl_tr = DataLoader(ds_tr, batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
+                    dl_val = DataLoader(ds_val, batch_size=BATCH_SIZE, shuffle=False)
                     
                     model = get_model(args.model_type, input_dim, params['hidden'], params['dropout']).to(device)
-                    optimizer = optim.Adam(model.parameters(), lr=params['lr'])
+                    # USE HELPER FOR DIFFERENTIAL LR
+                    optimizer = get_optimizer(model, params['lr'])
                     criterion = nn.BCEWithLogitsLoss()
                     
                     best_inner_auc = 0
@@ -201,35 +247,39 @@ def main(args):
                 return -np.mean(inner_aucs)
 
             res_gp = gp_minimize(objective, SPACE, n_calls=BAYES_ITER, n_initial_points=BAYES_INIT, random_state=seed, verbose=False)
-            
-            best_params = {
-                'lr': float(res_gp.x[0]),
-                'dropout': float(res_gp.x[1]),
-                'hidden': int(res_gp.x[2])
-            }
+            best_params = {'lr': float(res_gp.x[0]), 'dropout': float(res_gp.x[1]), 'hidden': int(res_gp.x[2])}
             
             # --- REFIT & TEST ---
             df_train_full, df_test = manager.split_patients(outer_train_pats, outer_test_pats)
             
-            if args.model_type == 'classic':
-                (X_tr, y_tr, i_tr, t_tr), (X_te, y_te, i_te, t_te) = \
-                    manager.load_classic_features(df_train_full, df_test, args.classic_csv, args.tasks, subset=args.classic_subset)
+            if args.model_type == 'fusion':
+                X_w, X_r, y = manager.load_paired_embeddings(df_train_full, args.embedding_dir, args.roberta_dir, args.tasks)
+                ds_train = AlzheimerDataset(X_w, y, features_text=X_r)
+                X_w_t, X_r_t, y_t = manager.load_paired_embeddings(df_test, args.embedding_dir, args.roberta_dir, args.tasks)
+                ds_test = AlzheimerDataset(X_w_t, y_t, features_text=X_r_t)
+                input_dim = None
+            elif args.model_type == 'classic':
+                (X_tr, y_tr, _, _), (X_te, y_te, _, _) = manager.load_classic_features(df_train_full, df_test, args.classic_csv, args.tasks, subset=args.classic_subset)
+                ds_train = AlzheimerDataset(X_tr, y_tr)
+                ds_test = AlzheimerDataset(X_te, y_te)
                 input_dim = X_tr.shape[1]
             else:
-                X_tr, y_tr, i_tr, t_tr = manager.load_embeddings(df_train_full, args.embedding_dir, args.tasks, args.model_type)
-                X_te, y_te, i_te, t_te = manager.load_embeddings(df_test, args.embedding_dir, args.tasks, args.model_type)
+                X_tr, y_tr, _, _ = manager.load_embeddings(df_train_full, args.embedding_dir, args.tasks, args.model_type)
+                X_te, y_te, _, _ = manager.load_embeddings(df_test, args.embedding_dir, args.tasks, args.model_type)
+                ds_train = AlzheimerDataset(X_tr, y_tr)
+                ds_test = AlzheimerDataset(X_te, y_te)
                 input_dim = X_tr.shape[1] if args.model_type == 'roberta' else None
 
-            dl_train = DataLoader(AlzheimerDataset(X_tr, y_tr, i_tr, t_tr), batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
-            dl_test = DataLoader(AlzheimerDataset(X_te, y_te, i_te, t_te), batch_size=BATCH_SIZE, shuffle=False)
+            dl_train = DataLoader(ds_train, batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
+            dl_test = DataLoader(ds_test, batch_size=BATCH_SIZE, shuffle=False)
             
             final_model = get_model(args.model_type, input_dim, best_params['hidden'], best_params['dropout']).to(device)
-            optimizer = optim.Adam(final_model.parameters(), lr=best_params['lr'])
+            # USE HELPER FOR DIFFERENTIAL LR
+            optimizer = get_optimizer(final_model, best_params['lr'])
             criterion = nn.BCEWithLogitsLoss()
             
             best_test_auc = 0
-            best_preds = None
-            best_targets = None
+            best_preds, best_targets = None, None
             
             for ep in range(EPOCHS):
                 train_model_epoch(final_model, dl_train, optimizer, criterion, device)
@@ -242,57 +292,42 @@ def main(args):
             ci_lower, ci_upper = bootstrap_ci(best_targets, best_preds, n_boot=BOOTSTRAP_N)
             
             res_dict = {
-                'seed': seed,
-                'fold': fold_idx,
-                'auc': best_test_auc,
-                'ci_lower': ci_lower,
-                'ci_upper': ci_upper,
-                'lr': best_params['lr'],
-                'dropout': best_params['dropout'],
-                'hidden': best_params['hidden']
+                'seed': seed, 'fold': fold_idx, 'auc': best_test_auc,
+                'ci_lower': ci_lower, 'ci_upper': ci_upper,
+                'lr': best_params['lr'], 'dropout': best_params['dropout'], 'hidden': best_params['hidden']
             }
+
+            # --- EXTRACT LAYER WEIGHTS ---
+            if hasattr(final_model, 'get_layer_weights'):
+                weights = final_model.get_layer_weights()
+                for i, w in enumerate(weights):
+                    res_dict[f'L{i}'] = float(w)
+            
             final_results.append(res_dict)
             pd.DataFrame(final_results).to_csv(save_dir / "results_partial.csv", index=False)
 
-    # --- FINAL REPORT ---
     df = pd.DataFrame(final_results)
     df.to_csv(save_dir / "results.csv", index=False)
     
     logging.info("\n\n====== 📜 FINAL MANUSCRIPT RESULTS ======")
-    logging.info(f"Groups: {args.target_groups}") # Print groups in final report
     logging.info(df)
-    
-    mean_auc = df['auc'].mean()
-    std_auc = df.groupby('seed')['auc'].mean().std()
-    
     logging.info("-" * 50)
-    logging.info(f"Overall Mean AUC: {mean_auc:.4f}")
-    logging.info(f"Robustness (Std across seeds): {std_auc:.4f}")
     logging.info(f"Results saved to: {save_dir}")
-    logging.info("==========================================")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_type", type=str, required=True)
     parser.add_argument("--metadata", type=str, required=True)
     parser.add_argument("--embedding_dir", type=str, default=None)
+    parser.add_argument("--roberta_dir", type=str, default=None)
     parser.add_argument("--classic_csv", type=str, default=None)
     parser.add_argument("--tasks", nargs='+', default=['Fugu'])
     parser.add_argument("--classic_subset", type=str, choices=['audio', 'language', 'combined'], default=None)
     parser.add_argument("--quick_debug", action="store_true")
-    
-    # --- NEW ARGUMENT FOR FTD ---
-    parser.add_argument("--target_groups", nargs='+', default=['CN', 'AD'], 
-                        help="The two groups to classify. e.g. CN FTD")
+    parser.add_argument("--target_groups", nargs='+', default=['CN', 'AD'])
     
     args = parser.parse_args()
-    
     if args.quick_debug:
         print("⚠️ DEBUG MODE")
-        N_SEEDS = 1
-        OUTER_FOLDS = 2
-        INNER_FOLDS = 2
-        BAYES_INIT = 2
-        BAYES_ITER = 2
-        
+        N_SEEDS = 1; OUTER_FOLDS = 2; INNER_FOLDS = 2; BAYES_INIT = 2; BAYES_ITER = 2
     main(args)
