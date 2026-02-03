@@ -1,0 +1,46 @@
+# 1. Classic Features: Audio Only
+
+python src/train_paper_methodology.py \
+  --model_type classic \
+  --metadata "data/metadata.csv" \
+  --classic_csv "data/REDLAT_features.csv" \
+  --tasks Fugu CraftIm Phonological Phonological2 Semantic Semantic2 \
+  --classic_subset audio \
+  --target_groups CN FTD
+
+# 2. Classic Features: Language Only
+
+python src/train_paper_methodology.py \
+  --model_type classic \
+  --metadata "data/metadata.csv" \
+  --classic_csv "data/REDLAT_features.csv" \
+  --tasks Fugu CraftIm Phonological Phonological2 Semantic Semantic2 \
+  --classic_subset language \
+  --target_groups CN FTD
+
+# 3. Classic Features: Combined (Audio + Language)
+
+python src/train_paper_methodology.py \
+  --model_type classic \
+  --metadata "data/metadata.csv" \
+  --classic_csv "data/REDLAT_features.csv" \
+  --tasks Fugu CraftIm Phonological Phonological2 Semantic Semantic2 \
+  --target_groups CN FTD
+
+# 4. Embeddings: WavLM (Audio)
+
+python src/train_paper_methodology.py \
+  --model_type wavlm \
+  --metadata "data/metadata.csv" \
+  --embedding_dir "/home/aleph/redlat/REDLAT_24-09-25_masked_prepro_wavlm" \
+  --tasks Fugu CraftIm Phonological Phonological2 Semantic Semantic2 \
+  --target_groups CN FTD
+
+# 5. Embeddings: RoBERTa (Language)
+
+python src/train_paper_methodology.py \
+  --model_type roberta \
+  --metadata "data/metadata.csv" \
+  --embedding_dir "/home/aleph/redlat/REDLAT_24-09-25_transcriptions_gemini_roberta" \
+  --tasks Fugu CraftIm Phonological Phonological2 Semantic Semantic2 \
+  --target_groups CN FTD
