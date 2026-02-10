@@ -39,7 +39,8 @@ INNER_FOLDS = 5  # As per your text
 BAYES_INIT = 5   # Initial random points
 BAYES_ITER = 10  # Optimization iterations
 BOOTSTRAP_N = 1000
-EPOCHS = 20
+MAX_EPOCHS = 50     
+PATIENCE = 15        
 BATCH_SIZE = 32
 
 
@@ -76,6 +77,32 @@ def get_optimizer(model, base_lr):
         # Standard Optimizer (for Classic/RoBERTa)
         return optim.Adam(model.parameters(), lr=base_lr)
 
+class EarlyStopping:
+    def __init__(self, patience=5, min_delta=0, mode='max'):
+        self.patience = patience
+        self.min_delta = min_delta
+        self.mode = mode
+        self.counter = 0
+        self.best_score = None
+        self.early_stop = False
+        self.best_weights = None
+
+    def __call__(self, current_score, model):
+        if self.best_score is None:
+            self.best_score = current_score
+            self.best_weights = copy.deepcopy(model.state_dict())
+        elif self.mode == 'max' and current_score < self.best_score + self.min_delta:
+            self.counter += 1
+            if self.counter >= self.patience:
+                self.early_stop = True
+        elif self.mode == 'min' and current_score > self.best_score - self.min_delta:
+            self.counter += 1
+            if self.counter >= self.patience:
+                self.early_stop = True
+        else:
+            self.best_score = current_score
+            self.best_weights = copy.deepcopy(model.state_dict())
+            self.counter = 0
 
 def setup_experiment(args):
     """Creates output folder and sets up logging."""
@@ -237,12 +264,14 @@ def main(args):
                     optimizer = get_optimizer(model, params['lr'])
                     criterion = nn.BCEWithLogitsLoss()
                     
-                    best_inner_auc = 0
-                    for _ in range(10): 
+                    # --- INNER EARLY STOPPING ---
+                    stopper = EarlyStopping(patience=PATIENCE, mode='max')
+                    for _ in range(MAX_EPOCHS):
                         train_model_epoch(model, dl_tr, optimizer, criterion, device)
                         auc, _, _ = evaluate(model, dl_val, device)
-                        if auc > best_inner_auc: best_inner_auc = auc
-                    inner_aucs.append(best_inner_auc)
+                        stopper(auc, model)
+                        if stopper.early_stop: break
+                    inner_aucs.append(stopper.best_score)
                 
                 return -np.mean(inner_aucs)
 
@@ -278,16 +307,16 @@ def main(args):
             optimizer = get_optimizer(final_model, best_params['lr'])
             criterion = nn.BCEWithLogitsLoss()
             
-            best_test_auc = 0
-            best_preds, best_targets = None, None
-            
-            for ep in range(EPOCHS):
+            # --- OUTER EARLY STOPPING ---
+            final_stopper = EarlyStopping(patience=PATIENCE, mode='max') # <--- UPDATED
+            for ep in range(MAX_EPOCHS): # <--- UPDATED
                 train_model_epoch(final_model, dl_train, optimizer, criterion, device)
-                auc, preds, targets = evaluate(final_model, dl_test, device)
-                if auc > best_test_auc:
-                    best_test_auc = auc
-                    best_preds = preds
-                    best_targets = targets
+                auc, _, _ = evaluate(final_model, dl_test, device)
+                final_stopper(auc, final_model) # <--- UPDATED
+                if final_stopper.early_stop: break # <--- UPDATED
+            
+            final_model.load_state_dict(final_stopper.best_weights) # <--- UPDATED: Restore best model
+            best_test_auc, best_preds, best_targets = evaluate(final_model, dl_test, device) # <--- UPDATED
             
             ci_lower, ci_upper = bootstrap_ci(best_targets, best_preds, n_boot=BOOTSTRAP_N)
             

@@ -34,7 +34,7 @@ python src/train_paper_methodology.py \
   --metadata "data/metadata.csv" \
   --embedding_dir "/home/aleph/redlat/REDLAT_24-09-25_masked_prepro_wavlm" \
   --tasks Fugu CraftIm Phonological Phonological2 Semantic Semantic2 \
-  --target_groups CN FTD
+  --target_groups CN AD
 
 # 5. Embeddings: RoBERTa (Language)
 
