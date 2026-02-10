@@ -54,29 +54,47 @@ class WavLMClassifier(nn.Module):
 
 # --- 4. Gated Multimodal Unit (Fusion) ---
 class GMU(nn.Module):
-    def __init__(self, dim_audio, dim_text, hidden_dim):
+    def __init__(self, dim_audio, dim_text, hidden_dim, dropout=0.2):
         super().__init__()
         self.linear_audio = nn.Linear(dim_audio, hidden_dim)
         self.linear_text = nn.Linear(dim_text, hidden_dim)
+        
+        # Stability: LayerNorm helps when modalities have different scales
+        self.ln_audio = nn.LayerNorm(hidden_dim)
+        self.ln_text = nn.LayerNorm(hidden_dim)
+        
         self.z_gate = nn.Linear(dim_audio + dim_text, hidden_dim)
+        self.dropout = nn.Dropout(dropout)
+        
+        # Store the last gate value for logging
+        self.last_z_mean = 0.0
 
     def forward(self, audio, text):
-        h_audio = torch.tanh(self.linear_audio(audio))
-        h_text = torch.tanh(self.linear_text(text))
+        # 1. Project and Normalize
+        h_audio = torch.tanh(self.ln_audio(self.linear_audio(audio)))
+        h_text = torch.tanh(self.ln_text(self.linear_text(text)))
+        
+        # 2. Calculate Gate
         combined = torch.cat([audio, text], dim=1)
         z = torch.sigmoid(self.z_gate(combined))
-        return z * h_audio + (1 - z) * h_text
+        
+        # Save mean gate value for interpretability (how much it trusts audio)
+        self.last_z_mean = z.mean().item()
+        
+        # 3. Dynamic Fusion
+        h = z * h_audio + (1 - z) * h_text
+        return self.dropout(h)
 
 class FusionClassifier(nn.Module):
     def __init__(self, hidden_dim=128, dropout_rate=0.3):
         super().__init__()
         self.wavlm_agg = WeightedAverageLayer(num_layers=13)
-        self.gmu = GMU(dim_audio=768, dim_text=768, hidden_dim=hidden_dim)
+        self.gmu = GMU(dim_audio=768, dim_text=768, hidden_dim=hidden_dim, dropout=dropout_rate)
+        
         self.classifier = nn.Sequential(
-            nn.BatchNorm1d(hidden_dim),
-            nn.Dropout(dropout_rate),
             nn.Linear(hidden_dim, hidden_dim // 2),
             nn.ReLU(),
+            nn.Dropout(dropout_rate),
             nn.Linear(hidden_dim // 2, 1)
         )
 
@@ -85,12 +103,13 @@ class FusionClassifier(nn.Module):
         fused_vector = self.gmu(audio_emb, x_roberta)
         return self.classifier(fused_vector)
 
-    # ---------------------------------------------------------
-    # 3. NEW METHOD: Allows us to save weights to CSV
-    # ---------------------------------------------------------
     def get_layer_weights(self):
-        w = F.softmax(self.wavlm_agg.weights, dim=0)
-        return w.detach().cpu().numpy()
+        # Returns WavLM weights (existing logic)
+        return F.softmax(self.wavlm_agg.weights, dim=0).detach().cpu().numpy()
+
+    def get_gate_value(self):
+        # Returns the mean trust in Audio (0 to 1)
+        return self.gmu.last_z_mean
 
 # --- Factory Function ---
 def get_model(model_type, input_dim=None, hidden_dim=128, dropout=0.3):

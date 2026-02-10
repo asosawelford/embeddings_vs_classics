@@ -33,22 +33,22 @@ from models import get_model
 # BATCH_SIZE = 32
 
 # --- mas chill
-N_SEEDS = 3
+N_SEEDS = 1
 OUTER_FOLDS = 2
 INNER_FOLDS = 5  # As per your text
 BAYES_INIT = 5   # Initial random points
 BAYES_ITER = 10  # Optimization iterations
 BOOTSTRAP_N = 1000
-MAX_EPOCHS = 50     
+MAX_EPOCHS = 80
 PATIENCE = 15        
 BATCH_SIZE = 32
 
 
 # Hyperparameter Space
 SPACE = [
-    Real(1e-5, 1e-3, name='lr', prior='log-uniform'),
-    Real(0.2, 0.6, name='dropout'),
-    Categorical([128, 256, 512], name='hidden')
+    Real(1e-4, 1e-3, name='lr', prior='log-uniform'),
+    Real(0.3, 0.6, name='dropout'),
+    Categorical([512, 1024, 2048, 4096], name='hidden')
 ]
 
 # --- HELPER: Create Differential Optimizer ---
@@ -325,6 +325,8 @@ def main(args):
                 'ci_lower': ci_lower, 'ci_upper': ci_upper,
                 'lr': best_params['lr'], 'dropout': best_params['dropout'], 'hidden': best_params['hidden']
             }
+            if hasattr(final_model, 'get_gate_value'):
+                    res_dict['gate_audio_trust'] = final_model.get_gate_value()
 
             # --- EXTRACT LAYER WEIGHTS ---
             if hasattr(final_model, 'get_layer_weights'):
@@ -358,5 +360,5 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if args.quick_debug:
         print("⚠️ DEBUG MODE")
-        N_SEEDS = 1; OUTER_FOLDS = 2; INNER_FOLDS = 2; BAYES_INIT = 2; BAYES_ITER = 2
+        N_SEEDS = 1; OUTER_FOLDS = 2; INNER_FOLDS = 2; BAYES_INIT = 2; BAYES_ITER = 2; MAX_EPOCHS = 80; PATIENCE = 15
     main(args)
