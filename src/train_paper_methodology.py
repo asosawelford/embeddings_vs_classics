@@ -59,11 +59,13 @@ def get_optimizer(model, base_lr):
     """
     agg_params = []
     rest_params = []
+    special_names = []
     
     for name, param in model.named_parameters():
         # Identify the learnable weights in aggregator
         if ('aggregator.weights' in name) or ('wavlm_agg.weights' in name):
             agg_params.append(param)
+            special_names.append(name)
         else:
             rest_params.append(param)
             
@@ -238,7 +240,16 @@ def main(args):
                     in_val_pats = outer_train_pats[in_val_ix]
                     df_tr, df_val = manager.split_patients(in_train_pats, in_val_pats)
                     
-                    if args.model_type == 'fusion':
+                    # --- DATA LOADING SWITCH (INNER LOOP) ---
+                    input_dim_2 = None
+                    
+                    if args.model_type == 'classic_fusion':
+                        (X_a_tr, X_l_tr, y_tr), (X_a_v, X_l_v, y_v) = manager.load_dual_classic_features(df_tr, df_val, args.classic_csv, args.tasks)
+                        ds_tr = AlzheimerDataset(X_a_tr, y_tr, features_text=X_l_tr)
+                        ds_val = AlzheimerDataset(X_a_v, y_v, features_text=X_l_v)
+                        input_dim, input_dim_2 = X_a_tr.shape[1], X_l_tr.shape[1]
+
+                    elif args.model_type == 'fusion':
                         X_w, X_r, y = manager.load_paired_embeddings(df_tr, args.embedding_dir, args.roberta_dir, args.tasks)
                         ds_tr = AlzheimerDataset(X_w, y, features_text=X_r)
                         X_w_v, X_r_v, y_v = manager.load_paired_embeddings(df_val, args.embedding_dir, args.roberta_dir, args.tasks)
@@ -259,8 +270,7 @@ def main(args):
                     dl_tr = DataLoader(ds_tr, batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
                     dl_val = DataLoader(ds_val, batch_size=BATCH_SIZE, shuffle=False)
                     
-                    model = get_model(args.model_type, input_dim, params['hidden'], params['dropout']).to(device)
-                    # USE HELPER FOR DIFFERENTIAL LR
+                    model = get_model(args.model_type, input_dim, params['hidden'], params['dropout'], input_dim_2=input_dim_2).to(device)
                     optimizer = get_optimizer(model, params['lr'])
                     criterion = nn.BCEWithLogitsLoss()
                     
@@ -280,8 +290,16 @@ def main(args):
             
             # --- REFIT & TEST ---
             df_train_full, df_test = manager.split_patients(outer_train_pats, outer_test_pats)
+            input_dim_2 = None # Initialize
             
-            if args.model_type == 'fusion':
+            # --- DATA LOADING SWITCH (OUTER LOOP) ---
+            if args.model_type == 'classic_fusion':
+                (X_a_tr, X_l_tr, y_tr), (X_a_te, X_l_te, y_te) = manager.load_dual_classic_features(df_train_full, df_test, args.classic_csv, args.tasks)
+                ds_train = AlzheimerDataset(X_a_tr, y_tr, features_text=X_l_tr)
+                ds_test = AlzheimerDataset(X_a_te, y_te, features_text=X_l_te)
+                input_dim, input_dim_2 = X_a_tr.shape[1], X_l_tr.shape[1]
+
+            elif args.model_type == 'fusion':
                 X_w, X_r, y = manager.load_paired_embeddings(df_train_full, args.embedding_dir, args.roberta_dir, args.tasks)
                 ds_train = AlzheimerDataset(X_w, y, features_text=X_r)
                 X_w_t, X_r_t, y_t = manager.load_paired_embeddings(df_test, args.embedding_dir, args.roberta_dir, args.tasks)
@@ -292,32 +310,31 @@ def main(args):
                 ds_train = AlzheimerDataset(X_tr, y_tr)
                 ds_test = AlzheimerDataset(X_te, y_te)
                 input_dim = X_tr.shape[1]
-            else:
+
+            else: # wavlm or roberta
                 X_tr, y_tr, _, _ = manager.load_embeddings(df_train_full, args.embedding_dir, args.tasks, args.model_type)
                 X_te, y_te, _, _ = manager.load_embeddings(df_test, args.embedding_dir, args.tasks, args.model_type)
                 ds_train = AlzheimerDataset(X_tr, y_tr)
                 ds_test = AlzheimerDataset(X_te, y_te)
                 input_dim = X_tr.shape[1] if args.model_type == 'roberta' else None
+            # ------------------------------------------
 
             dl_train = DataLoader(ds_train, batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
             dl_test = DataLoader(ds_test, batch_size=BATCH_SIZE, shuffle=False)
             
-            final_model = get_model(args.model_type, input_dim, best_params['hidden'], best_params['dropout']).to(device)
-            # USE HELPER FOR DIFFERENTIAL LR
+            final_model = get_model(args.model_type, input_dim, best_params['hidden'], best_params['dropout'], input_dim_2=input_dim_2).to(device)
             optimizer = get_optimizer(final_model, best_params['lr'])
             criterion = nn.BCEWithLogitsLoss()
             
-            # --- OUTER EARLY STOPPING ---
-            final_stopper = EarlyStopping(patience=PATIENCE, mode='max') # <--- UPDATED
-            for ep in range(MAX_EPOCHS): # <--- UPDATED
+            final_stopper = EarlyStopping(patience=PATIENCE, mode='max')
+            for ep in range(MAX_EPOCHS):
                 train_model_epoch(final_model, dl_train, optimizer, criterion, device)
                 auc, _, _ = evaluate(final_model, dl_test, device)
-                final_stopper(auc, final_model) # <--- UPDATED
-                if final_stopper.early_stop: break # <--- UPDATED
+                final_stopper(auc, final_model)
+                if final_stopper.early_stop: break
             
-            final_model.load_state_dict(final_stopper.best_weights) # <--- UPDATED: Restore best model
-            best_test_auc, best_preds, best_targets = evaluate(final_model, dl_test, device) # <--- UPDATED
-            
+            final_model.load_state_dict(final_stopper.best_weights)
+            best_test_auc, best_preds, best_targets = evaluate(final_model, dl_test, device)
             ci_lower, ci_upper = bootstrap_ci(best_targets, best_preds, n_boot=BOOTSTRAP_N)
             
             res_dict = {
@@ -326,7 +343,7 @@ def main(args):
                 'lr': best_params['lr'], 'dropout': best_params['dropout'], 'hidden': best_params['hidden']
             }
             if hasattr(final_model, 'get_gate_value'):
-                    res_dict['gate_audio_trust'] = final_model.get_gate_value()
+                res_dict['gate_audio_trust'] = final_model.get_gate_value()
 
             # --- EXTRACT LAYER WEIGHTS ---
             if hasattr(final_model, 'get_layer_weights'):

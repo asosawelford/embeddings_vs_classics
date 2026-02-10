@@ -254,3 +254,44 @@ class DataManager:
                     print(f"Error loading pair for {record_id}: {e}")
                     
         return np.array(X_audio), np.array(X_text), np.array(y)
+    
+    def load_dual_classic_features(self, train_df, test_df, csv_path, tasks, k=5):
+        """
+        Loads BOTH audio and language classic features as separate matrices.
+        """
+        feat_df = pd.read_csv(csv_path, low_memory=False)
+
+        # Define families (matching your previous setup)
+        AUDIO_KEYS = ['pitch', 'timing', 'talking_intervals', 'jitter', 'shimmer']
+        LANG_KEYS = ['concreteness', 'granularity', 'verbosity', 'OSV', 'lexical', 'semantic']
+
+        def _extract_dual(meta_df, is_train, imp_a=None, scl_a=None, imp_l=None, scl_l=None):
+            lean_meta = meta_df[['record_id', 'label_encoded']].copy()
+            merged = pd.merge(lean_meta, feat_df, on='record_id', how='inner')
+            
+            # Filter by task and prefix
+            cols_a = [c for c in merged.columns if any(k in c for k in AUDIO_KEYS) and any(c.startswith(t) for t in tasks)]
+            cols_l = [c for c in merged.columns if any(k in c for k in LANG_KEYS) and any(c.startswith(t) for t in tasks)]
+            
+            X_a = merged[cols_a].select_dtypes(include=[np.number]).values
+            X_l = merged[cols_l].select_dtypes(include=[np.number]).values
+            labels = merged['label_encoded'].values
+
+            if is_train:
+                # Setup Audio Imputer/Scaler
+                imp_a, scl_a = KNNImputer(n_neighbors=k), StandardScaler()
+                X_a = scl_a.fit_transform(imp_a.fit_transform(X_a))
+                # Setup Lang Imputer/Scaler
+                imp_l, scl_l = KNNImputer(n_neighbors=k), StandardScaler()
+                X_l = scl_l.fit_transform(imp_l.fit_transform(X_l))
+                return X_a, X_l, labels, imp_a, scl_a, imp_l, scl_l
+            else:
+                X_a = scl_a.transform(imp_a.transform(X_a))
+                X_l = scl_l.transform(imp_l.transform(X_l))
+                return X_a, X_l, labels, None, None, None, None
+
+        # Process splits
+        X_a_tr, X_l_tr, y_tr, ia, sa, il, sl = _extract_dual(train_df, True)
+        X_a_te, X_l_te, y_te, _, _, _, _ = _extract_dual(test_df, False, ia, sa, il, sl)
+
+        return (X_a_tr, X_l_tr, y_tr), (X_a_te, X_l_te, y_te)

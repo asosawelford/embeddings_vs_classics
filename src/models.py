@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np # <--- 1. ADDED THIS
+import numpy as np
 
 # --- 1. The Weighted Average Layer ---
 class WeightedAverageLayer(nn.Module):
@@ -52,7 +52,7 @@ class WavLMClassifier(nn.Module):
         w = F.softmax(self.aggregator.weights, dim=0)
         return w.detach().cpu().numpy()
 
-# --- 4. Gated Multimodal Unit (Fusion) ---
+# --- 4. GATED MULTIMODAL UNIT (CORRECTED "V3") ---
 class GMU(nn.Module):
     def __init__(self, dim_audio, dim_text, hidden_dim, dropout=0.2):
         super().__init__()
@@ -111,12 +111,27 @@ class FusionClassifier(nn.Module):
         # Returns the mean trust in Audio (0 to 1)
         return self.gmu.last_z_mean
 
+class ClassicFusionClassifier(nn.Module):
+    def __init__(self, dim_audio, dim_lang, hidden_dim=128, dropout_rate=0.3):
+        super().__init__()
+        self.gmu = GMU(dim_audio=dim_audio, dim_text=dim_lang, hidden_dim=hidden_dim, dropout=dropout_rate)
+        self.classifier = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim // 2), nn.ReLU(), nn.Dropout(dropout_rate),
+            nn.Linear(hidden_dim // 2, 1)
+        )
+    def forward(self, x_audio, x_lang):
+        fused = self.gmu(x_audio, x_lang)
+        return self.classifier(fused)
+    def get_gate_value(self): return self.gmu.last_z_mean
+
 # --- Factory Function ---
-def get_model(model_type, input_dim=None, hidden_dim=128, dropout=0.3):
+def get_model(model_type, input_dim=None, hidden_dim=128, dropout=0.3, input_dim_2=None):
     if model_type == 'wavlm':
         return WavLMClassifier(hidden_dim=hidden_dim, dropout_rate=dropout)
     elif model_type == 'fusion':
         return FusionClassifier(hidden_dim=hidden_dim, dropout_rate=dropout)
+    elif model_type == 'classic_fusion':
+        return ClassicFusionClassifier(dim_audio=input_dim, dim_lang=input_dim_2, hidden_dim=hidden_dim, dropout_rate=dropout)
     elif model_type in ['roberta', 'classic']:
         return SimpleMLP(input_dim=input_dim, hidden_dim=hidden_dim, dropout_rate=dropout)
     else:
