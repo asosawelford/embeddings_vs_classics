@@ -120,8 +120,7 @@ class DataManager:
         """
         feat_df = pd.read_csv(csv_path, low_memory=False)
         
-        # --- DEFINITIONS OF FEATURE FAMILIES ---
-        # Edit these lists to match the substrings in your column headers
+        # --- DEFINITIONS OF FEATURE FAMILIES
         FEATURE_FAMILIES = {
             'audio': [
                 'pitch_analysis_pitch', 
@@ -132,7 +131,9 @@ class DataManager:
                 'granularity', 
                 'verbosity', 
                 'OSV',
-                'psycholinguistic_objective'
+                'psycholinguistic_objective',
+                'semantic_acuity',
+                'graphs'
             ]
         }
         
@@ -184,7 +185,7 @@ class DataManager:
             existing_drop = [c for c in cols_to_drop if c in merged.columns]
             
             features_df = merged.drop(columns=existing_drop)
-            
+
             # 4. Extract
             features = features_df.select_dtypes(include=[np.number]).values
             labels = merged['label_encoded'].values

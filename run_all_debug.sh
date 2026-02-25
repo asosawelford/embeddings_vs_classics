@@ -5,42 +5,54 @@ META="data/metadata.csv"
 CLASSIC="data/REDLAT_features.csv"
 WAVLM="/home/aleph/redlat/REDLAT_24-09-25_masked_prepro_wavlm"
 ROBERTA="/home/aleph/redlat/REDLAT_24-09-25_transcriptions_gemini_roberta"
-TASKS="Fugu CraftIm Phonological Phonological2 Semantic Semantic2"
+
+# Define the sets of tasks to iterate over
+TASK_SETS=(
+    "Fugu CraftIm Phonological Phonological2 Semantic Semantic2"
+    "Fugu"
+    "CraftIm"
+    "Phonological Phonological2 Semantic Semantic2"
+)
+
 
 echo "==================================================="
-echo "🔎 STARTING DEBUG SUITE (ALL MODELS / ALL PAIRS)"
+echo "🔎 STARTING DEBUG SUITE (ALL MODELS / ALL PAIRS / ALL TASK SETS)"
 echo "==================================================="
 
-for PAIR in "CN AD" "CN FTD" "AD FTD"; do
-    set -- $PAIR
-    G1=$1
-    G2=$2
-    echo "--- Testing Pair: $G1 vs $G2 ---"
+# Loop over each set of tasks
+for TASKS in "${TASK_SETS[@]}"; do
+    echo "###################################################"
+    echo "Testing Task Set: $TASKS"
+    echo "###################################################"
 
-    # 1. Classic Audio
-    echo " > Classic Audio..."
-    python src/train_paper_methodology.py --model_type classic --metadata "$META" --classic_csv "$CLASSIC" --tasks $TASKS --classic_subset audio --target_groups $G1 $G2 --quick_debug || exit 1
+    # Loop over the 3 Comparison Pairs
+    for PAIR in "CN AD" "CN FTD" "AD FTD"; do
+        set -- $PAIR
+        G1=$1
+        G2=$2
+        echo "--- Testing Pair: $G1 vs $G2 ---"
 
-    # 2. Classic Language
-    echo " > Classic Language..."
-    python src/train_paper_methodology.py --model_type classic --metadata "$META" --classic_csv "$CLASSIC" --tasks $TASKS --classic_subset language --target_groups $G1 $G2 --quick_debug || exit 1
-
-    # 3. Classic Combined (No Subset Flag)
-    echo " > Classic Combined..."
-    python src/train_paper_methodology.py --model_type classic --metadata "$META" --classic_csv "$CLASSIC" --tasks $TASKS --target_groups $G1 $G2 --quick_debug || exit 1
-
-    # 4. WavLM
-    echo " > WavLM..."
-    python src/train_paper_methodology.py --model_type wavlm --metadata "$META" --embedding_dir "$WAVLM" --tasks $TASKS --target_groups $G1 $G2 --quick_debug || exit 1
-
-    # 5. RoBERTa
+        # 1. Classic Audio
+        echo " > Classic Audio..."
+        python src/train_paper_methodology.py --model_type classic --metadata "$META" --classic_csv "$CLASSIC" --tasks $TASKS --classic_subset audio --target_groups $G1 $G2 --quick_debug || exit 1
+        # 2. Classic Language
+        echo " > Classic Language..."
+        python src/train_paper_methodology.py --model_type classic --metadata "$META" --classic_csv "$CLASSIC" --tasks $TASKS --classic_subset language --target_groups $G1 $G2 --quick_debug || exit 1
+        # 3. Classic Combined (Concatenated)
+        echo " > Classic Combined..."
+        python src/train_paper_methodology.py --model_type classic --metadata "$META" --classic_csv "$CLASSIC" --tasks $TASKS --target_groups $G1 $G2 --quick_debug || exit 1
+        # 4. Classic Fusion (GMU)
+        python src/train_paper_methodology.py --model_type classic_fusion --metadata "$META" --classic_csv "$CLASSIC" --tasks $TASKS --target_groups $G1 $G2 --quick_debug || exit 1
+        # 5. WavLM
+        echo " > WavLM..."
+        python src/train_paper_methodology.py --model_type wavlm --metadata "$META" --embedding_dir "$WAVLM" --tasks $TASKS --target_groups $G1 $G2 --quick_debug || exit 1
+        # 6. RoBERTa
     echo " > RoBERTa..."
-    python src/train_paper_methodology.py --model_type roberta --metadata "$META" --embedding_dir "$ROBERTA" --tasks $TASKS --target_groups $G1 $G2 --quick_debug || exit 1
-
-    # 6. Fusion (GMU)
+        python src/train_paper_methodology.py --model_type roberta --metadata "$META" --embedding_dir "$ROBERTA" --tasks $TASKS --target_groups $G1 $G2 --quick_debug || exit 1
+        # 7. Embedding Fusion (GMU)
     echo " > Fusion (GMU)..."
-    python src/train_paper_methodology.py --model_type fusion --metadata "$META" --embedding_dir "$WAVLM" --roberta_dir "$ROBERTA" --tasks $TASKS --target_groups $G1 $G2 --quick_debug || exit 1
-
+        python src/train_paper_methodology.py --model_type fusion --metadata "$META" --embedding_dir "$WAVLM" --roberta_dir "$ROBERTA" --tasks $TASKS --target_groups $G1 $G2 --quick_debug || exit 1
+    done
 done
 
 echo "ALL DEBUG TESTS PASSED! YOU ARE READY FOR PRODUCTION."

@@ -48,7 +48,7 @@ BATCH_SIZE = 32
 SPACE = [
     Real(1e-4, 1e-3, name='lr', prior='log-uniform'),
     Real(0.3, 0.6, name='dropout'),
-    Categorical([512, 1024, 2048, 4096], name='hidden')
+    Categorical([128, 256, 512, 1024, 2048, 4096], name='hidden')
 ]
 
 # --- HELPER: Create Differential Optimizer ---
