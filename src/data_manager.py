@@ -7,10 +7,11 @@ from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.impute import KNNImputer
 
 # --- GLOBAL DEFINITIONS FOR FEATURE FAMILIES ---
-# Define these exactly ONCE so all models use the exact same data!
+# These are used to categorize the curated features into "Audio" or "Text" buckets
 AUDIO_KEYS = [
     'pitch_analysis_pitch', 
-    'talking_intervals'
+    'talking_intervals',
+    'intensity', 'formant', 'mfcc', 'zero_crossing', 'shimmer', 'jitter', 'HNR'
 ]
 LANG_KEYS = [
     'concreteness', 
@@ -19,8 +20,19 @@ LANG_KEYS = [
     'OSV',
     'psycholinguistic_objective',
     'semantic_acuity',
-    'graphs'
+    'graphs',
+    'lexical', 
+    'syntactic'
 ]
+
+# --- CURATED FEATURE PATHS ---
+# Maps a generic task key to the specific CSV containing the list of relevant features
+TASK_FEATURE_FILES = {
+    'CraftIm': '/home/aleph/embeddings_vs_classics/data/task_relevant_features/CraftIm_task.csv',
+    'Fugu': '/home/aleph/embeddings_vs_classics/data/task_relevant_features/Fugu_task.csv',
+    'Phonological': '/home/aleph/embeddings_vs_classics/data/task_relevant_features/Phonological_fluency_task.csv',
+    'Semantic': '/home/aleph/embeddings_vs_classics/data/task_relevant_features/Semantic_fluency_task.csv'
+}
 
 class AlzheimerDataset(Dataset):
     def __init__(self, features, labels, features_text=None):
@@ -73,6 +85,40 @@ class DataManager:
         test_df = self.metadata[self.metadata['record_id'].isin(test_patient_ids)]
         return train_df, test_df
 
+    def _get_curated_feature_list(self, tasks):
+        """
+        Reads the CSVs defined in TASK_FEATURE_FILES for the requested tasks.
+        Returns a Set of allowed column names.
+        """
+        allowed_features = set()
+        found_config = False
+
+        for task in tasks:
+            # We try to match the task string to our keys (e.g., 'Semantic' matches 'Semantic_fluency_task')
+            # or exact match
+            key_match = None
+            for key in TASK_FEATURE_FILES:
+                if key in task or task in key:
+                    key_match = key
+                    break
+            
+            if key_match:
+                path = Path(TASK_FEATURE_FILES[key_match])
+                if path.exists():
+                    try:
+                        f_df = pd.read_csv(path)
+                        if 'Feature_name' in f_df.columns:
+                            feats = f_df['Feature_name'].dropna().tolist()
+                            allowed_features.update(feats)
+                            found_config = True
+                            # print(f"Loaded {len(feats)} features for task {task}")
+                    except Exception as e:
+                        print(f"Error reading feature file {path}: {e}")
+                else:
+                    print(f"Warning: Feature file not found: {path}")
+
+        return allowed_features if found_config else None
+
     def load_embeddings(self, df, embedding_dir, tasks, model_type='wavlm'):
         X, y, ids, task_list = [], [], [], []
         missing_count = 0
@@ -109,6 +155,14 @@ class DataManager:
                             emb = data['embedding']
                         else:
                             emb = data['embeddings']
+                    
+                    # Add support for wav2vec2/xlsr (similar structure to WavLM dict)
+                    elif model_type == 'xlsr': 
+                         # Assumes dictionary with keys 'layer_0'...'layer_24'
+                         keys = [k for k in data.keys() if k.startswith('layer_')]
+                         # Sort keys to ensure layer order
+                         keys.sort(key=lambda x: int(x.split('_')[1]))
+                         emb = np.stack([data[k] for k in keys])
 
                     X.append(emb)
                     y.append(label)
@@ -119,7 +173,7 @@ class DataManager:
                     print(f"Error reading {file_path}: {e}")
 
         if missing_count > 0:
-            print(f"⚠️  Skipped {missing_count} missing files.")
+            print(f"⚠️ Skipped {missing_count} missing files.")
 
         return np.array(X), np.array(y), ids, task_list
 
@@ -129,42 +183,49 @@ class DataManager:
         """
         feat_df = pd.read_csv(csv_path, low_memory=False)
         
+        # 1. Get Curated List from CSVs
+        curated_whitelist = self._get_curated_feature_list(tasks)
+        # if curated_whitelist:
+        #     print(f"Using Curated Feature List: {len(curated_whitelist)} allowed features found.")
+
         def _expand_classic(meta_df, is_train, imputer=None, scaler=None, k_neighbors=5):
             # 1. Lean Metadata
             lean_meta = meta_df[['record_id', 'label_encoded']].copy()
             merged = pd.merge(lean_meta, feat_df, on='record_id', how='inner')
             
             # 2. TASK & SUBSET FILTERING
-            if 'task' in merged.columns:
-                # Long Format Logic (Rows)
-                merged = merged[merged['task'].isin(tasks)]
-                # (Subset filtering for Long format would happen later on columns, 
-                # but let's assume Wide format as per your files)
-                t_names = merged['task'].values
+            cols_to_keep = ['record_id', 'label_encoded']
+            feature_cols = []
+            
+            # Define keywords for subset filtering
+            if subset == 'audio':
+                keywords = AUDIO_KEYS
+            elif subset == 'language':
+                keywords = LANG_KEYS
+            elif subset == 'combined':
+                keywords = AUDIO_KEYS + LANG_KEYS
             else:
-                # Wide Format Logic (Columns)
-                t_names = ['combined'] * len(merged)
-                cols_to_keep = ['record_id', 'label_encoded']
-                feature_cols = []
-                
-                # --- FIX: Explicit logic for combined subset ---
-                if subset == 'audio':
-                    keywords = AUDIO_KEYS
-                elif subset == 'language':
-                    keywords = LANG_KEYS
-                elif subset == 'combined':
-                    keywords = AUDIO_KEYS + LANG_KEYS
-                else:
-                    keywords = None # Default: Loads all numeric columns
+                keywords = None # Default: Loads all numeric columns
 
-                for col in merged.columns:
-                    if col in cols_to_keep: continue
-                    is_task_match = any(col.startswith(t) for t in tasks)
-                    if not is_task_match: continue
-                    if keywords and not any(k in col for k in keywords): continue 
-                    feature_cols.append(col)
+            for col in merged.columns:
+                if col in cols_to_keep: continue
                 
-                merged = merged[cols_to_keep + feature_cols]
+                # A. Must match one of the requested tasks
+                is_task_match = any(t in col for t in tasks) # Looser check: 'Semantic' in 'Semantic_fluency...'
+                if not is_task_match: continue
+
+                # B. Must be in Curated Whitelist (if it exists)
+                if curated_whitelist is not None:
+                    # We check if the column name exists in the whitelist
+                    if col not in curated_whitelist:
+                        continue
+
+                # C. Must match the Subset (Audio/Language) via Keywords
+                if keywords and not any(k in col for k in keywords): continue 
+                
+                feature_cols.append(col)
+            
+            merged = merged[cols_to_keep + feature_cols]
 
             # 3. Anti-Leakage Drop
             cols_to_drop = ['record_id', 'label_encoded', 'task', 'site', 'criteria_category', 'clinical_diagnosis']
@@ -177,12 +238,18 @@ class DataManager:
             features = features_df.select_dtypes(include=[np.number]).values
             labels = merged['label_encoded'].values
             r_ids = merged['record_id'].values
+            
+            # If wide format, task names are implicit, just fill with 'combined'
+            t_names = ['combined'] * len(merged)
 
             if features.shape[1] == 0:
-                raise ValueError(f"No features found for Task={tasks} and Subset={subset}. Check your keywords!")
+                print(f"Warning: No features found for Task={tasks}, Subset={subset}")
+                # return empty arrays to avoid crash, or raise error
+                # raise ValueError(f"No features found for Task={tasks} and Subset={subset}.")
 
             if is_train:
-                imputer, scaler = KNNImputer(n_neighbors=k_neighbors), StandardScaler()
+                imputer = KNNImputer(n_neighbors=k_neighbors)
+                scaler = StandardScaler()
                 features_scaled = scaler.fit_transform(imputer.fit_transform(features))
                 return features_scaled, labels, r_ids, t_names, imputer, scaler
             else:
@@ -215,13 +282,33 @@ class DataManager:
     def load_dual_classic_features(self, train_df, test_df, csv_path, tasks, k=5):
         feat_df = pd.read_csv(csv_path, low_memory=False)
 
+        # 1. Get Curated List
+        curated_whitelist = self._get_curated_feature_list(tasks)
+        # if curated_whitelist:
+        #     print(f"Using Curated Feature List (Dual): {len(curated_whitelist)} allowed features.")
+
         def _extract_dual(meta_df, is_train, imp_a=None, scl_a=None, imp_l=None, scl_l=None):
             lean_meta = meta_df[['record_id', 'label_encoded']].copy()
             merged = pd.merge(lean_meta, feat_df, on='record_id', how='inner')
             
-            # --- FIX: Uses Global Keys ---
-            cols_a = [c for c in merged.columns if any(k in c for k in AUDIO_KEYS) and any(c.startswith(t) for t in tasks)]
-            cols_l = [c for c in merged.columns if any(k in c for k in LANG_KEYS) and any(c.startswith(t) for t in tasks)]
+            # Filter cols based on Task + Whitelist + Modality Key
+            cols_a = []
+            cols_l = []
+            
+            for col in merged.columns:
+                # Basic task check
+                if not any(t in col for t in tasks): continue
+                
+                # Whitelist check
+                if curated_whitelist and col not in curated_whitelist: continue
+                
+                # Modality check
+                if any(k in col for k in AUDIO_KEYS):
+                    cols_a.append(col)
+                elif any(k in col for k in LANG_KEYS):
+                    cols_l.append(col)
+            
+            print(f"  Selected {len(cols_a)} Audio feats and {len(cols_l)} Text feats.")
             
             X_a = merged[cols_a].select_dtypes(include=[np.number]).values
             X_l = merged[cols_l].select_dtypes(include=[np.number]).values

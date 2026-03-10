@@ -1,0 +1,114 @@
+Domain,Modality,Category,Feature_name
+"Motor speech, Episodic memory, Semantic memory & Syntax",Audio,Speech Timing,Fugu__talking_intervals__mean_pause_duration
+"Motor speech, Episodic memory, Semantic memory & Syntax",Audio,Speech Timing,Fugu__talking_intervals__pause_duration_variability
+"Motor speech, Episodic memory, Semantic memory & Syntax",Audio,Speech Timing,Fugu__talking_intervals__pause_duration_kurtosis
+"Motor speech, Episodic memory, Semantic memory & Syntax",Audio,Speech Timing,Fugu__talking_intervals__pause_duration_skewness
+"Motor speech, Episodic memory, Semantic memory & Syntax",Audio,Speech Timing,Fugu__talking_intervals__pause_duration_max
+"Motor speech, Episodic memory, Semantic memory & Syntax",Audio,Speech Timing,Fugu__talking_intervals__pause_duration_min
+"Motor speech, Episodic memory, Semantic memory & Syntax",Audio,Speech Timing,Fugu__talking_intervals__mean_syllable_duration
+"Motor speech, Episodic memory, Semantic memory & Syntax",Audio,Speech Timing,Fugu__talking_intervals__syllable_duration_variability
+"Motor speech, Episodic memory, Semantic memory & Syntax",Audio,Speech Timing,Fugu__talking_intervals__syllable_duration_kurtosis
+"Motor speech, Episodic memory, Semantic memory & Syntax",Audio,Speech Timing,Fugu__talking_intervals__syllable_duration_skewness
+"Motor speech, Episodic memory, Semantic memory & Syntax",Audio,Speech Timing,Fugu__talking_intervals__syllable_duration_max
+"Motor speech, Episodic memory, Semantic memory & Syntax",Audio,Speech Timing,Fugu__talking_intervals__syllable_duration_min
+"Motor speech, Episodic memory, Semantic memory & Syntax",Audio,Speech Timing,Fugu__talking_intervals__npauses
+"Motor speech, Episodic memory, Semantic memory & Syntax",Audio,Speech Timing,Fugu__talking_intervals__nsyll
+"Motor speech, Episodic memory, Semantic memory & Syntax",Audio,Speech Timing,Fugu__talking_intervals__speechrate
+Motor speech,Audio,Voice Quality,Fugu__pitch_analysis__hnr_mean
+Motor speech,Audio,Voice Quality,Fugu__pitch_analysis__hnr_stddev
+Motor speech,Audio,Voice Quality,Fugu__pitch_analysis__hnr_kurtosis
+Motor speech,Audio,Voice Quality,Fugu__pitch_analysis__hnr_skewness
+Motor speech,Audio,Voice Quality,Fugu__pitch_analysis__hnr_max
+Motor speech,Audio,Voice Quality,Fugu__pitch_analysis__hnr_min
+Motor speech,Audio,Voice Quality,Fugu__pitch_analysis__jitter_mean
+Motor speech,Audio,Voice Quality,Fugu__pitch_analysis__jitter_stddev
+Motor speech,Audio,Voice Quality,Fugu__pitch_analysis__jitter_kurtosis
+Motor speech,Audio,Voice Quality,Fugu__pitch_analysis__jitter_skewness
+Motor speech,Audio,Voice Quality,Fugu__pitch_analysis__jitter_max
+Motor speech,Audio,Voice Quality,Fugu__pitch_analysis__jitter_min
+Motor speech,Audio,Voice Quality,Fugu__pitch_analysis__shimmer_mean
+Motor speech,Audio,Voice Quality,Fugu__pitch_analysis__shimmer_stddev
+Motor speech,Audio,Voice Quality,Fugu__pitch_analysis__shimmer_kurtosis
+Motor speech,Audio,Voice Quality,Fugu__pitch_analysis__shimmer_skewness
+Motor speech,Audio,Voice Quality,Fugu__pitch_analysis__shimmer_max
+Motor speech,Audio,Voice Quality,Fugu__pitch_analysis__shimmer_min
+"Motor speech, Episodic Memory & Syntax",Audio,Pitch,Fugu__pitch_analysis__pitch_mean
+"Motor speech, Episodic Memory & Syntax",Audio,Pitch,Fugu__pitch_analysis__pitch_stddev
+"Motor speech, Episodic Memory & Syntax",Audio,Pitch,Fugu__pitch_analysis__pitch_kurtosis
+"Motor speech, Episodic Memory & Syntax",Audio,Pitch,Fugu__pitch_analysis__pitch_skewness
+"Motor speech, Episodic Memory & Syntax",Audio,Pitch,Fugu__pitch_analysis__pitch_max
+"Motor speech, Episodic Memory & Syntax",Audio,Pitch,Fugu__pitch_analysis__pitch_min
+Lexico-semantics & Semantic memory,Text,Word properties,Fugu__psycholinguistic_objective__mean_log_frq
+Lexico-semantics & Semantic memory,Text,Word properties,Fugu__psycholinguistic_objective__mean_num_phonemes
+Lexico-semantics & Semantic memory,Text,Word properties,Fugu__psycholinguistic_objective__mean_num_syll
+Lexico-semantics & Semantic memory,Text,Word properties,Fugu__psycholinguistic_objective__mean_phon_neigh
+Lexico-semantics & Semantic memory,Text,Word properties,Fugu__noun_granularity__mean
+Lexico-semantics & Semantic memory,Text,Word properties,Fugu__noun_granularity__median
+Lexico-semantics & Semantic memory,Text,Word properties,Fugu__noun_granularity__std
+Lexico-semantics & Semantic memory,Text,Word properties,Fugu__noun_granularity__count
+Lexico-semantics & Semantic memory,Text,Word properties,Fugu__noun_granularity__kurtosis
+Lexico-semantics & Semantic memory,Text,Word properties,Fugu__noun_granularity__max
+Lexico-semantics & Semantic memory,Text,Word properties,Fugu__noun_granularity__min
+Lexico-semantics & Semantic memory,Text,Word properties,Fugu__noun_granularity__skewness
+Lexico-semantics & Semantic memory,Text,Word properties,Fugu__verb_granularity__mean
+Lexico-semantics & Semantic memory,Text,Word properties,Fugu__verb_granularity__median
+Lexico-semantics & Semantic memory,Text,Word properties,Fugu__verb_granularity__std
+Lexico-semantics & Semantic memory,Text,Word properties,Fugu__verb_granularity__count
+Lexico-semantics & Semantic memory,Text,Word properties,Fugu__verb_granularity__kurtosis
+Lexico-semantics & Semantic memory,Text,Word properties,Fugu__verb_granularity__max
+Lexico-semantics & Semantic memory,Text,Word properties,Fugu__verb_granularity__min
+Lexico-semantics & Semantic memory,Text,Word properties,Fugu__verb_granularity__skewness
+Lexico-semantics & Semantic memory,Text,Word properties,Fugu__osv_extraction__osv_mean
+Lexico-semantics & Semantic memory,Text,Word properties,Fugu__osv_extraction__osv_sd
+Lexico-semantics & Semantic memory,Text,Word properties,Fugu__concreteness__concreteness_mean_concr
+Lexico-semantics & Semantic memory,Text,Word properties,Fugu__concreteness__concreteness_median_concr
+Lexico-semantics & Semantic memory,Text,Word properties,Fugu__concreteness__concreteness_std_concr
+Lexico-semantics & Semantic memory,Text,Word properties,Fugu__concreteness__concreteness_kurt_concr
+Lexico-semantics & Semantic memory,Text,Word properties,Fugu__concreteness__concreteness_max_concr
+Lexico-semantics & Semantic memory,Text,Word properties,Fugu__concreteness__concreteness_min_concr
+Lexico-semantics & Semantic memory,Text,Word properties,Fugu__concreteness__concreteness_skew_concr
+Lexico-semantics & Semantic memory,Text,Word properties,Fugu__phonological__priming_mean
+Lexico-semantics & Semantic memory,Text,Word properties,Fugu__phonological__priming_median
+Lexico-semantics & Semantic memory,Text,Word properties,Fugu__phonological__priming_std
+Lexico-semantics & Semantic memory,Text,Word properties,Fugu__phonological__priming_kurt
+Lexico-semantics & Semantic memory,Text,Word properties,Fugu__phonological__priming_max
+Lexico-semantics & Semantic memory,Text,Word properties,Fugu__phonological__priming_min
+Lexico-semantics & Semantic memory,Text,Word properties,Fugu__phonological__priming_skew
+Lexico-semantics,Text,Word usage,Fugu__verbosity__TTR
+Lexico-semantics,Text,Word usage,Fugu__verbosity__metrics_token_lexical_density
+Lexico-semantics,Text,Word usage,Fugu__verbosity__metrics_token_proportional_density
+Lexico-semantics,Text,Word usage,Fugu__verbosity__metrics_token_adjectives_vs_content
+Lexico-semantics,Text,Word usage,Fugu__verbosity__metrics_token_adverbs_vs_content
+Lexico-semantics,Text,Word usage,Fugu__verbosity__metrics_token_noun_vs_content
+Lexico-semantics,Text,Word usage,Fugu__verbosity__metrics_token_pron_vs_content
+Lexico-semantics,Text,Word usage,Fugu__verbosity__metrics_token_propn_vs_content
+Lexico-semantics,Text,Word usage,Fugu__verbosity__metrics_token_verbs_vs_content
+Lexico-semantics,Text,Word usage,Fugu__verbosity__metrics_token_words_quantity
+Syntax,Text,Syntax,Fugu__verbosity__mlu
+Syntax,Text,Syntax,Fugu__verbosity__quantity_of_sentences
+Syntax,Text,Syntax,Fugu__verbosity__core
+Syntax,Text,Syntax,Fugu__verbosity__nominal
+Syntax,Text,Syntax,Fugu__verbosity__non-core
+Syntax,Text,Syntax,Fugu__verbosity__non-dependency
+Text topography,Text,Topography,Fugu__graph__no_pos_full_raw_L1_
+Text topography,Text,Topography,Fugu__graph__no_pos_full_raw_L2_
+Text topography,Text,Topography,Fugu__graph__no_pos_full_raw_L3_
+Text topography,Text,Topography,Fugu__graph__no_pos_full_raw_density
+Text topography,Text,Topography,Fugu__graph__no_pos_full_raw_average_shortest_path
+Text topography,Text,Topography,Fugu__graph__no_pos_full_raw_LSC
+Text topography,Text,Topography,Fugu__graph__no_pos_full_raw_LCC
+Text topography,Text,Topography,Fugu__graph__no_pos_full_raw_diameter
+Text topography,Text,Topography,Fugu__graph__no_pos_full_raw_total_degree_calc
+Text topography,Text,Topography,Fugu__graph__no_pos_full_raw_average_clustering_coefficient
+Text topography,Text,Topography,Fugu__graph__no_pos_full_raw_PE
+Text topography,Text,Topography,Fugu__graph__no_pos_full_raw_RE
+Emotional processing,Text,Sentiment,Fugu__sentiment_analysis__POS
+Emotional processing,Text,Sentiment,Fugu__sentiment_analysis__NEU
+Emotional processing,Text,Sentiment,Fugu__sentiment_analysis__NEG
+Emotional processing,Text,Sentiment,Fugu__sentiment_analysis__anger
+Emotional processing,Text,Sentiment,Fugu__sentiment_analysis__disgust
+Emotional processing,Text,Sentiment,Fugu__sentiment_analysis__fear
+Emotional processing,Text,Sentiment,Fugu__sentiment_analysis__joy
+Emotional processing,Text,Sentiment,Fugu__sentiment_analysis__surprise
+Emotional processing,Text,Sentiment,Fugu__sentiment_analysis__sadness
+Episodic memory,Text,Semantic distance,Fugu__semantic_acuity_text
