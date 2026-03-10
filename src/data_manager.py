@@ -10,8 +10,9 @@ from sklearn.impute import KNNImputer
 # These are used to categorize the curated features into "Audio" or "Text" buckets
 AUDIO_KEYS = [
     'pitch_analysis_pitch', 
+    'pitch_analysis'
     'talking_intervals',
-    'intensity', 'formant', 'mfcc', 'zero_crossing', 'shimmer', 'jitter', 'HNR'
+    'intensity', 'formant', 'mfcc', 'zero_crossing', 'shimmer', 'jitter', 'HNR', 'npauses', 'nsyll'
 ]
 LANG_KEYS = [
     'concreteness', 
@@ -22,7 +23,8 @@ LANG_KEYS = [
     'semantic_acuity',
     'graphs',
     'lexical', 
-    'syntactic'
+    'syntactic',
+    'seniment_analysis'
 ]
 
 # --- CURATED FEATURE PATHS ---
@@ -185,11 +187,8 @@ class DataManager:
         
         # 1. Get Curated List from CSVs
         curated_whitelist = self._get_curated_feature_list(tasks)
-        # if curated_whitelist:
-        #     print(f"Using Curated Feature List: {len(curated_whitelist)} allowed features found.")
 
         def _expand_classic(meta_df, is_train, imputer=None, scaler=None, k_neighbors=5):
-            # 1. Lean Metadata
             lean_meta = meta_df[['record_id', 'label_encoded']].copy()
             merged = pd.merge(lean_meta, feat_df, on='record_id', how='inner')
             
@@ -197,7 +196,6 @@ class DataManager:
             cols_to_keep = ['record_id', 'label_encoded']
             feature_cols = []
             
-            # Define keywords for subset filtering
             if subset == 'audio':
                 keywords = AUDIO_KEYS
             elif subset == 'language':
@@ -205,22 +203,13 @@ class DataManager:
             elif subset == 'combined':
                 keywords = AUDIO_KEYS + LANG_KEYS
             else:
-                keywords = None # Default: Loads all numeric columns
+                keywords = None 
 
             for col in merged.columns:
                 if col in cols_to_keep: continue
-                
-                # A. Must match one of the requested tasks
-                is_task_match = any(t in col for t in tasks) # Looser check: 'Semantic' in 'Semantic_fluency...'
+                is_task_match = any(t in col for t in tasks)
                 if not is_task_match: continue
-
-                # B. Must be in Curated Whitelist (if it exists)
-                if curated_whitelist is not None:
-                    # We check if the column name exists in the whitelist
-                    if col not in curated_whitelist:
-                        continue
-
-                # C. Must match the Subset (Audio/Language) via Keywords
+                if curated_whitelist is not None and col not in curated_whitelist: continue
                 if keywords and not any(k in col for k in keywords): continue 
                 
                 feature_cols.append(col)
@@ -231,33 +220,47 @@ class DataManager:
             cols_to_drop = ['record_id', 'label_encoded', 'task', 'site', 'criteria_category', 'clinical_diagnosis']
             cols_to_drop += ['participant_id', 'subject', 'ID', 'Unnamed: 0']
             existing_drop = [c for c in cols_to_drop if c in merged.columns]
-            
             features_df = merged.drop(columns=existing_drop)
 
             # 4. Extract
-            features = features_df.select_dtypes(include=[np.number]).values
+            numeric_features_df = features_df.select_dtypes(include=[np.number])
+            features = numeric_features_df.values
             labels = merged['label_encoded'].values
             r_ids = merged['record_id'].values
             
-            # If wide format, task names are implicit, just fill with 'combined'
             t_names = ['combined'] * len(merged)
 
             if features.shape[1] == 0:
                 print(f"Warning: No features found for Task={tasks}, Subset={subset}")
-                # return empty arrays to avoid crash, or raise error
-                # raise ValueError(f"No features found for Task={tasks} and Subset={subset}.")
 
             if is_train:
                 imputer = KNNImputer(n_neighbors=k_neighbors)
                 scaler = StandardScaler()
-                features_scaled = scaler.fit_transform(imputer.fit_transform(features))
-                return features_scaled, labels, r_ids, t_names, imputer, scaler
+                
+                # Fit transform features
+                imputed_features = imputer.fit_transform(features)
+                features_scaled = scaler.fit_transform(imputed_features)
+                
+                # ---> THE FIX: KNNImputer drops columns that are 100% NaN. 
+                # We MUST filter our feature names to match the surviving columns!
+                kept_mask = np.isnan(features).sum(axis=0) < features.shape[0]
+                final_feature_cols = numeric_features_df.columns[kept_mask].tolist()
+                
+                return features_scaled, labels, r_ids, t_names, imputer, scaler, final_feature_cols
             else:
-                return scaler.transform(imputer.transform(features)), labels, r_ids, t_names, None, None
+                # Test set just uses the fitted imputer and scaler
+                imputed_features = imputer.transform(features)
+                features_scaled = scaler.transform(imputed_features)
+                
+                # For the test set, we don't need to return names, just return an empty list
+                return features_scaled, labels, r_ids, t_names, None, None, []
 
-        X_train, y_train, id_train, t_train, imp, scl = _expand_classic(train_df, True, k_neighbors=k)
-        X_test, y_test, id_test, t_test, _, _ = _expand_classic(test_df, False, imputer=imp, scaler=scl)
-        return (X_train, y_train, id_train, t_train), (X_test, y_test, id_test, t_test)
+        # Unpack 7 values
+        X_train, y_train, id_train, t_train, imp, scl, cols = _expand_classic(train_df, True, k_neighbors=k)
+        X_test, y_test, id_test, t_test, _, _, _ = _expand_classic(test_df, False, imputer=imp, scaler=scl)
+        
+        # Return 3 items: Train Tuple, Test Tuple, Feature Names List
+        return (X_train, y_train, id_train, t_train), (X_test, y_test, id_test, t_test), cols
     
     def load_paired_embeddings(self, df, wavlm_dir, roberta_dir, tasks):
         X_audio, X_text, y = [], [], []

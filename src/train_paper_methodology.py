@@ -14,6 +14,9 @@ from pathlib import Path
 from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import roc_auc_score
 
+# Feature Importance Imports
+from feature_importance import calculate_permutation_importance, plot_top_features
+
 # Bayesian Optimization
 from skopt import gp_minimize
 from skopt.space import Real, Integer, Categorical
@@ -35,14 +38,13 @@ from models import get_model
 # --- mas chill
 N_SEEDS = 1
 OUTER_FOLDS = 2
-INNER_FOLDS = 5  # As per your text
-BAYES_INIT = 5   # Initial random points
-BAYES_ITER = 10  # Optimization iterations
+INNER_FOLDS = 5
+BAYES_INIT = 5
+BAYES_ITER = 10
 BOOTSTRAP_N = 1000
 MAX_EPOCHS = 80
 PATIENCE = 15        
 BATCH_SIZE = 32
-
 
 # Hyperparameter Space
 SPACE = [
@@ -72,10 +74,9 @@ def get_optimizer(model, base_lr):
             rest_params.append(param)
             
     if len(agg_params) > 0:
-        logging.info(f"   [DEBUG] Differential LR (0.01) applied to: {special_names}")
         return optim.Adam([
             {'params': rest_params, 'lr': base_lr},
-            {'params': agg_params, 'lr': 0.01} # Force higher LR
+            {'params': agg_params, 'lr': 0.01}
         ])
     else:
         return optim.Adam(model.parameters(), lr=base_lr)
@@ -127,22 +128,14 @@ def setup_experiment(args):
     logging.basicConfig(
         level=logging.INFO,
         format="%(message)s",
-        handlers=[
-            logging.FileHandler(save_dir / "run.log"),
-            logging.StreamHandler()
-        ]
+        handlers=[logging.FileHandler(save_dir / "run.log"), logging.StreamHandler()]
     )
 
-    # Save Config
     config = vars(args)
     config['CONSTANTS'] = {
-        'N_SEEDS': N_SEEDS,
-        'OUTER_FOLDS': OUTER_FOLDS,
-        'INNER_FOLDS': INNER_FOLDS,
-        'BAYES_INIT': BAYES_INIT,
-        'BAYES_ITER': BAYES_ITER
+        'N_SEEDS': N_SEEDS, 'OUTER_FOLDS': OUTER_FOLDS, 'INNER_FOLDS': INNER_FOLDS,
+        'BAYES_INIT': BAYES_INIT, 'BAYES_ITER': BAYES_ITER
     }
-    
     with open(save_dir / "config.json", "w") as f:
         json.dump(config, f, indent=4)
         
@@ -208,7 +201,7 @@ def main(args):
     save_dir = setup_experiment(args)
     
     logging.info(f"🚀 Starting Paper Methodology Run")
-    logging.info(f"   Target Groups: {args.target_groups}") # Log the specific comparison
+    logging.info(f"   Target Groups: {args.target_groups}")
     logging.info(f"   Model: {args.model_type} | Task: {args.tasks}")
     logging.info(f"   Config: {N_SEEDS} Seeds | {OUTER_FOLDS}x{INNER_FOLDS} Nested CV | BayesOpt ({BAYES_INIT} init, {BAYES_ITER} iter)")
 
@@ -241,10 +234,20 @@ def main(args):
                     in_val_pats = outer_train_pats[in_val_ix]
                     df_tr, df_val = manager.split_patients(in_train_pats, in_val_pats)
                     
-                    # --- DATA LOADING SWITCH (INNER LOOP) ---
                     input_dim_2 = None
                     
-                    if args.model_type == 'classic_fusion':
+                    if args.model_type == 'classic':
+                        # UPDATED: Handle the 3rd return value (feature_cols) but ignore it here
+                        (X_tr, y_tr, _, _), (X_val, y_val, _, _), _ = manager.load_classic_features(
+                            df_tr, df_val, args.classic_csv, args.tasks, subset=args.classic_subset
+                        )
+                        ds_tr = AlzheimerDataset(X_tr, y_tr)
+                        ds_val = AlzheimerDataset(X_val, y_val)
+                        input_dim = X_tr.shape[1]
+                    
+                    elif args.model_type == 'classic_fusion':
+                         # Note: You might need to update load_dual_classic_features in data_manager if you want it to return cols too
+                         # For now assuming it wasn't changed to return 3 tuples
                         (X_a_tr, X_l_tr, y_tr), (X_a_v, X_l_v, y_v) = manager.load_dual_classic_features(df_tr, df_val, args.classic_csv, args.tasks)
                         ds_tr = AlzheimerDataset(X_a_tr, y_tr, features_text=X_l_tr)
                         ds_val = AlzheimerDataset(X_a_v, y_v, features_text=X_l_v)
@@ -256,11 +259,6 @@ def main(args):
                         X_w_v, X_r_v, y_v = manager.load_paired_embeddings(df_val, args.embedding_dir, args.roberta_dir, args.tasks)
                         ds_val = AlzheimerDataset(X_w_v, y_v, features_text=X_r_v)
                         input_dim = None
-                    elif args.model_type == 'classic':
-                        (X_tr, y_tr, _, _), (X_val, y_val, _, _) = manager.load_classic_features(df_tr, df_val, args.classic_csv, args.tasks, subset=args.classic_subset)
-                        ds_tr = AlzheimerDataset(X_tr, y_tr)
-                        ds_val = AlzheimerDataset(X_val, y_val)
-                        input_dim = X_tr.shape[1]
                     else:
                         X_tr, y_tr, _, _ = manager.load_embeddings(df_tr, args.embedding_dir, args.tasks, args.model_type)
                         X_val, y_val, _, _ = manager.load_embeddings(df_val, args.embedding_dir, args.tasks, args.model_type)
@@ -275,7 +273,6 @@ def main(args):
                     optimizer = get_optimizer(model, params['lr'])
                     criterion = nn.BCEWithLogitsLoss()
                     
-                    # --- INNER EARLY STOPPING ---
                     stopper = EarlyStopping(patience=PATIENCE, mode='max')
                     for _ in range(MAX_EPOCHS):
                         train_model_epoch(model, dl_tr, optimizer, criterion, device)
@@ -291,10 +288,19 @@ def main(args):
             
             # --- REFIT & TEST ---
             df_train_full, df_test = manager.split_patients(outer_train_pats, outer_test_pats)
-            input_dim_2 = None # Initialize
-            
-            # --- DATA LOADING SWITCH (OUTER LOOP) ---
-            if args.model_type == 'classic_fusion':
+            input_dim_2 = None 
+            feature_names = None # Store feature names here
+
+            if args.model_type == 'classic':
+                # UPDATED: Capture feature_names
+                (X_tr, y_tr, _, _), (X_te, y_te, _, _), feature_names = manager.load_classic_features(
+                    df_train_full, df_test, args.classic_csv, args.tasks, subset=args.classic_subset
+                )
+                ds_train = AlzheimerDataset(X_tr, y_tr)
+                ds_test = AlzheimerDataset(X_te, y_te)
+                input_dim = X_tr.shape[1]
+
+            elif args.model_type == 'classic_fusion':
                 (X_a_tr, X_l_tr, y_tr), (X_a_te, X_l_te, y_te) = manager.load_dual_classic_features(df_train_full, df_test, args.classic_csv, args.tasks)
                 ds_train = AlzheimerDataset(X_a_tr, y_tr, features_text=X_l_tr)
                 ds_test = AlzheimerDataset(X_a_te, y_te, features_text=X_l_te)
@@ -306,19 +312,12 @@ def main(args):
                 X_w_t, X_r_t, y_t = manager.load_paired_embeddings(df_test, args.embedding_dir, args.roberta_dir, args.tasks)
                 ds_test = AlzheimerDataset(X_w_t, y_t, features_text=X_r_t)
                 input_dim = None
-            elif args.model_type == 'classic':
-                (X_tr, y_tr, _, _), (X_te, y_te, _, _) = manager.load_classic_features(df_train_full, df_test, args.classic_csv, args.tasks, subset=args.classic_subset)
-                ds_train = AlzheimerDataset(X_tr, y_tr)
-                ds_test = AlzheimerDataset(X_te, y_te)
-                input_dim = X_tr.shape[1]
-
-            else: # wavlm or roberta
+            else:
                 X_tr, y_tr, _, _ = manager.load_embeddings(df_train_full, args.embedding_dir, args.tasks, args.model_type)
                 X_te, y_te, _, _ = manager.load_embeddings(df_test, args.embedding_dir, args.tasks, args.model_type)
                 ds_train = AlzheimerDataset(X_tr, y_tr)
                 ds_test = AlzheimerDataset(X_te, y_te)
                 input_dim = X_tr.shape[1] if args.model_type == 'roberta' else None
-            # ------------------------------------------
 
             dl_train = DataLoader(ds_train, batch_size=BATCH_SIZE, shuffle=True, drop_last=True)
             dl_test = DataLoader(ds_test, batch_size=BATCH_SIZE, shuffle=False)
@@ -335,6 +334,29 @@ def main(args):
                 if final_stopper.early_stop: break
             
             final_model.load_state_dict(final_stopper.best_weights)
+            
+            # --- FEATURE IMPORTANCE ANALYSIS ---
+            # Run only if Classic model and we have feature names
+            if args.model_type == 'classic' and feature_names is not None:
+                logging.info("   🔍 Running Feature Importance Analysis...")
+                
+                # Get Test Data as Numpy for the permutation script
+                # Since ds_test.features is a Tensor, we convert to numpy
+                X_test_np = ds_test.features.numpy()
+                y_test_np = ds_test.labels.numpy()
+                
+                imp_df = calculate_permutation_importance(
+                    final_model, X_test_np, y_test_np, feature_names, device
+                )
+                
+                # Save results
+                fname_csv = save_dir / f"importance_seed{seed}_fold{fold_idx}.csv"
+                imp_df.to_csv(fname_csv, index=False)
+                
+                # Plot only for the first fold/seed to avoid spamming images
+                if seed == 0 and fold_idx == 0:
+                    plot_top_features(imp_df, top_n=15, title=f"Top Features ({'_'.join(args.tasks)})")
+            
             best_test_auc, best_preds, best_targets = evaluate(final_model, dl_test, device)
             ci_lower, ci_upper = bootstrap_ci(best_targets, best_preds, n_boot=BOOTSTRAP_N)
             
@@ -345,8 +367,6 @@ def main(args):
             }
             if hasattr(final_model, 'get_gate_value'):
                 res_dict['gate_audio_trust'] = final_model.get_gate_value()
-
-            # --- EXTRACT LAYER WEIGHTS ---
             if hasattr(final_model, 'get_layer_weights'):
                 weights = final_model.get_layer_weights()
                 for i, w in enumerate(weights):
