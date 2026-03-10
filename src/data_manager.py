@@ -262,22 +262,28 @@ class DataManager:
         # Return 3 items: Train Tuple, Test Tuple, Feature Names List
         return (X_train, y_train, id_train, t_train), (X_test, y_test, id_test, t_test), cols
     
-    def load_paired_embeddings(self, df, wavlm_dir, roberta_dir, tasks):
+    def load_paired_embeddings(self, df, audio_dir, roberta_dir, tasks, audio_type='wavlm'):
         X_audio, X_text, y = [], [], []
         for _, row in df.iterrows():
             record_id, site, label = row['record_id'], row['site'], row['label_encoded']
             for task in tasks:
-                path_wav = Path(wavlm_dir) / site / record_id / f"REDLAT_{record_id}_{task}.npz"
+                path_audio = Path(audio_dir) / site / record_id / f"REDLAT_{record_id}_{task}.npz"
                 path_rob = Path(roberta_dir) / site / record_id / f"REDLAT_{record_id}_{task}.npz"
-                if not path_wav.exists() or not path_rob.exists(): continue
+                if not path_audio.exists() or not path_rob.exists(): continue
                 
                 try:
-                    data_w = np.load(path_wav)
-                    emb_w = data_w['embeddings'] if 'embeddings' in data_w else np.stack([data_w[f'layer_{i}'] for i in range(13)])
+                    data_a = np.load(path_audio)
+                    if audio_type == 'wavlm':
+                        emb_a = data_a['embeddings'] if 'embeddings' in data_a else np.stack([data_a[f'layer_{i}'] for i in range(13)])
+                    elif audio_type == 'xlsr':
+                        keys = [k for k in data_a.keys() if k.startswith('layer_')]
+                        keys.sort(key=lambda x: int(x.split('_')[1]))
+                        emb_a = np.stack([data_a[k] for k in keys])
+                    
                     data_r = np.load(path_rob)
                     emb_r = data_r['embedding'] if 'embedding' in data_r else data_r['embeddings']
                     
-                    X_audio.append(emb_w); X_text.append(emb_r); y.append(label)
+                    X_audio.append(emb_a); X_text.append(emb_r); y.append(label)
                 except Exception as e:
                     print(f"Error loading pair for {record_id}: {e}")
         return np.array(X_audio), np.array(X_text), np.array(y)

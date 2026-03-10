@@ -11,7 +11,7 @@ class WeightedAverageLayer(nn.Module):
         self.weights = nn.Parameter(torch.zeros(num_layers))
 
     def forward(self, x):
-        # x shape: (Batch, 13, 768)
+        # x shape: (Batch, num_layers, hidden_dim)
         w = F.softmax(self.weights, dim=0)
         x_weighted = x * w.view(1, -1, 1)
         return torch.sum(x_weighted, dim=1)
@@ -47,6 +47,24 @@ class WavLMClassifier(nn.Module):
     
     def get_layer_weights(self):
         """Returns the 13 softmaxed weights as a numpy array."""
+        w = F.softmax(self.aggregator.weights, dim=0)
+        return w.detach().cpu().numpy()
+
+# --- NEW: The XLSR Wrapper ---
+class XLSRClassifier(nn.Module):
+    def __init__(self, hidden_dim=128, dropout_rate=0.3):
+        super().__init__()
+        # XLSR has 25 layers (1 output of feature extractor + 24 transformer layers)
+        self.aggregator = WeightedAverageLayer(num_layers=25)
+        # XLSR Large has 1024 embedding dimensions
+        self.classifier = SimpleMLP(1024, hidden_dim, dropout_rate)
+
+    def forward(self, x):
+        pooled_embedding = self.aggregator(x)
+        return self.classifier(pooled_embedding)
+    
+    def get_layer_weights(self):
+        """Returns the 25 softmaxed weights as a numpy array."""
         w = F.softmax(self.aggregator.weights, dim=0)
         return w.detach().cpu().numpy()
 
@@ -108,6 +126,32 @@ class FusionClassifier(nn.Module):
     def get_gate_value(self):
         return self.gmu.last_z_mean
 
+# --- NEW: XLSR Fusion Classifier ---
+class XLSRFusionClassifier(nn.Module):
+    def __init__(self, hidden_dim=128, dropout_rate=0.3):
+        super().__init__()
+        self.xlsr_agg = WeightedAverageLayer(num_layers=25)
+        # Notice dim_audio is 1024, dim_text remains 768 for RoBERTa
+        self.gmu = GMU(dim_audio=1024, dim_text=768, hidden_dim=hidden_dim, dropout=dropout_rate)
+        
+        self.classifier = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(hidden_dim // 2, 1)
+        )
+
+    def forward(self, x_xlsr, x_roberta):
+        audio_emb = self.xlsr_agg(x_xlsr)
+        fused_vector = self.gmu(audio_emb, x_roberta)
+        return self.classifier(fused_vector)
+
+    def get_layer_weights(self):
+        return F.softmax(self.xlsr_agg.weights, dim=0).detach().cpu().numpy()
+
+    def get_gate_value(self):
+        return self.gmu.last_z_mean
+
 class ClassicFusionClassifier(nn.Module):
     def __init__(self, dim_audio, dim_lang, hidden_dim=128, dropout_rate=0.3):
         super().__init__()
@@ -126,13 +170,38 @@ class ClassicFusionClassifier(nn.Module):
 
     def get_gate_value(self):
         return self.gmu.last_z_mean
+    
+
+class ClassicEmbeddingFusionClassifier(nn.Module):
+    def __init__(self, dim_classic, dim_emb=768, hidden_dim=128, dropout_rate=0.3):
+        super().__init__()
+        # We re-use GMU. dim_audio becomes classic features, dim_text becomes the embedding
+        self.gmu = GMU(dim_audio=dim_classic, dim_text=dim_emb, hidden_dim=hidden_dim, dropout=dropout_rate)
+        
+        self.classifier = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(hidden_dim // 2, 1)
+        )
+
+    def forward(self, x_classic, x_emb):
+        fused = self.gmu(x_classic, x_emb)
+        return self.classifier(fused)
+
+    def get_gate_value(self):
+        return self.gmu.last_z_mean
 
 # --- Factory Function ---
 def get_model(model_type, input_dim=None, hidden_dim=128, dropout=0.3, input_dim_2=None):
     if model_type == 'wavlm':
         return WavLMClassifier(hidden_dim=hidden_dim, dropout_rate=dropout)
+    elif model_type == 'xlsr':
+        return XLSRClassifier(hidden_dim=hidden_dim, dropout_rate=dropout)
     elif model_type == 'fusion':
         return FusionClassifier(hidden_dim=hidden_dim, dropout_rate=dropout)
+    elif model_type == 'xlsr_fusion':
+        return XLSRFusionClassifier(hidden_dim=hidden_dim, dropout_rate=dropout)
     elif model_type == 'classic_fusion':
         return ClassicFusionClassifier(dim_audio=input_dim, dim_lang=input_dim_2, hidden_dim=hidden_dim, dropout_rate=dropout)
     elif model_type in ['roberta', 'classic']:

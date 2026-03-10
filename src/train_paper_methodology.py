@@ -259,6 +259,15 @@ def main(args):
                         X_w_v, X_r_v, y_v = manager.load_paired_embeddings(df_val, args.embedding_dir, args.roberta_dir, args.tasks)
                         ds_val = AlzheimerDataset(X_w_v, y_v, features_text=X_r_v)
                         input_dim = None
+
+                    elif args.model_type in ['fusion', 'xlsr_fusion']:
+                        a_type = 'xlsr' if args.model_type == 'xlsr_fusion' else 'wavlm'
+                        X_w, X_r, y = manager.load_paired_embeddings(df_tr, args.embedding_dir, args.roberta_dir, args.tasks, audio_type=a_type)
+                        ds_tr = AlzheimerDataset(X_w, y, features_text=X_r)
+                        X_w_v, X_r_v, y_v = manager.load_paired_embeddings(df_val, args.embedding_dir, args.roberta_dir, args.tasks, audio_type=a_type)
+                        ds_val = AlzheimerDataset(X_w_v, y_v, features_text=X_r_v)
+                        input_dim = None
+                    
                     else:
                         X_tr, y_tr, _, _ = manager.load_embeddings(df_tr, args.embedding_dir, args.tasks, args.model_type)
                         X_val, y_val, _, _ = manager.load_embeddings(df_val, args.embedding_dir, args.tasks, args.model_type)
@@ -306,12 +315,14 @@ def main(args):
                 ds_test = AlzheimerDataset(X_a_te, y_te, features_text=X_l_te)
                 input_dim, input_dim_2 = X_a_tr.shape[1], X_l_tr.shape[1]
 
-            elif args.model_type == 'fusion':
-                X_w, X_r, y = manager.load_paired_embeddings(df_train_full, args.embedding_dir, args.roberta_dir, args.tasks)
+            elif args.model_type in ['fusion', 'xlsr_fusion']:
+                a_type = 'xlsr' if args.model_type == 'xlsr_fusion' else 'wavlm'
+                X_w, X_r, y = manager.load_paired_embeddings(df_train_full, args.embedding_dir, args.roberta_dir, args.tasks, audio_type=a_type)
                 ds_train = AlzheimerDataset(X_w, y, features_text=X_r)
-                X_w_t, X_r_t, y_t = manager.load_paired_embeddings(df_test, args.embedding_dir, args.roberta_dir, args.tasks)
+                X_w_t, X_r_t, y_t = manager.load_paired_embeddings(df_test, args.embedding_dir, args.roberta_dir, args.tasks, audio_type=a_type)
                 ds_test = AlzheimerDataset(X_w_t, y_t, features_text=X_r_t)
                 input_dim = None
+
             else:
                 X_tr, y_tr, _, _ = manager.load_embeddings(df_train_full, args.embedding_dir, args.tasks, args.model_type)
                 X_te, y_te, _, _ = manager.load_embeddings(df_test, args.embedding_dir, args.tasks, args.model_type)
