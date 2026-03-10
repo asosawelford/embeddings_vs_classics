@@ -48,35 +48,36 @@ BATCH_SIZE = 32
 SPACE = [
     Real(1e-4, 1e-3, name='lr', prior='log-uniform'),
     Real(0.3, 0.6, name='dropout'),
-    Categorical([128, 256, 512, 1024, 2048, 4096], name='hidden')
+    Categorical([64, 128, 256, 512, 1024, 2048, 4096], name='hidden')
 ]
 
-# --- HELPER: Create Differential Optimizer ---
 def get_optimizer(model, base_lr):
     """
     Sets base_lr for the model, but forces a higher LR (0.01) 
-    for the WavLM WeightedAverageLayer weights.
+    for:
+    1. WavLM WeightedAverageLayer weights
+    2. GMU Gate weights
     """
     agg_params = []
     rest_params = []
     special_names = []
     
     for name, param in model.named_parameters():
-        # Identify the learnable weights in aggregator
-        if ('aggregator.weights' in name) or ('wavlm_agg.weights' in name):
+        # Identify special params (Weights or Gates)
+        # Check for aggregator weights OR GMU gate weights
+        if ('weights' in name and 'agg' in name) or ('z_gate' in name):
             agg_params.append(param)
             special_names.append(name)
         else:
             rest_params.append(param)
             
     if len(agg_params) > 0:
-        # Differential Learning Rates
+        logging.info(f"   [DEBUG] Differential LR (0.01) applied to: {special_names}")
         return optim.Adam([
             {'params': rest_params, 'lr': base_lr},
-            {'params': agg_params, 'lr': 0.01} # Force higher LR for weights
+            {'params': agg_params, 'lr': 0.01} # Force higher LR
         ])
     else:
-        # Standard Optimizer (for Classic/RoBERTa)
         return optim.Adam(model.parameters(), lr=base_lr)
 
 class EarlyStopping:

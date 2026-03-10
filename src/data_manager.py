@@ -6,8 +6,24 @@ from pathlib import Path
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.impute import KNNImputer
 
+# --- GLOBAL DEFINITIONS FOR FEATURE FAMILIES ---
+# Define these exactly ONCE so all models use the exact same data!
+AUDIO_KEYS = [
+    'pitch_analysis_pitch', 
+    'talking_intervals'
+]
+LANG_KEYS = [
+    'concreteness', 
+    'granularity', 
+    'verbosity', 
+    'OSV',
+    'psycholinguistic_objective',
+    'semantic_acuity',
+    'graphs'
+]
+
 class AlzheimerDataset(Dataset):
-    def __init__(self, features, labels, features_text=None): # Added optional text
+    def __init__(self, features, labels, features_text=None):
         self.features = torch.FloatTensor(features)
         self.labels = torch.LongTensor(labels)
         self.features_text = torch.FloatTensor(features_text) if features_text is not None else None
@@ -58,20 +74,13 @@ class DataManager:
         return train_df, test_df
 
     def load_embeddings(self, df, embedding_dir, tasks, model_type='wavlm'):
-        X = []
-        y = []
-        ids = []
-        task_list = []
-        
+        X, y, ids, task_list = [], [], [], []
         missing_count = 0
         embedding_dir = Path(embedding_dir)
         printed_debug = False
 
         for _, row in df.iterrows():
-            record_id = row['record_id']
-            site = row['site']
-            label = row['label_encoded']
-            
+            record_id, site, label = row['record_id'], row['site'], row['label_encoded']
             for task_name in tasks:
                 # Path Logic: Base / Site / ID / REDLAT_ID_Task.npz
                 filename = f"REDLAT_{record_id}_{task_name}.npz"
@@ -120,23 +129,6 @@ class DataManager:
         """
         feat_df = pd.read_csv(csv_path, low_memory=False)
         
-        # --- DEFINITIONS OF FEATURE FAMILIES
-        FEATURE_FAMILIES = {
-            'audio': [
-                'pitch_analysis_pitch', 
-                'talking_intervals',
-            ],
-            'language': [
-                'concreteness', 
-                'granularity', 
-                'verbosity', 
-                'OSV',
-                'psycholinguistic_objective',
-                'semantic_acuity',
-                'graphs'
-            ]
-        }
-        
         def _expand_classic(meta_df, is_train, imputer=None, scaler=None, k_neighbors=5):
             # 1. Lean Metadata
             lean_meta = meta_df[['record_id', 'label_encoded']].copy()
@@ -155,26 +147,21 @@ class DataManager:
                 cols_to_keep = ['record_id', 'label_encoded']
                 feature_cols = []
                 
-                # Get keywords for the requested subset
-                keywords = FEATURE_FAMILIES.get(subset) if subset else None
+                # --- FIX: Explicit logic for combined subset ---
+                if subset == 'audio':
+                    keywords = AUDIO_KEYS
+                elif subset == 'language':
+                    keywords = LANG_KEYS
+                elif subset == 'combined':
+                    keywords = AUDIO_KEYS + LANG_KEYS
+                else:
+                    keywords = None # Default: Loads all numeric columns
 
                 for col in merged.columns:
                     if col in cols_to_keep: continue
-                    
-                    # 1. Check Task (Starts with...)
-                    is_task_match = False
-                    for t in tasks:
-                        if col.startswith(t):
-                            is_task_match = True
-                            break
+                    is_task_match = any(col.startswith(t) for t in tasks)
                     if not is_task_match: continue
-                    
-                    # 2. Check Subset (Contains string...)
-                    if keywords:
-                        # Only keep if column name contains at least one keyword
-                        if not any(k in col for k in keywords):
-                            continue 
-                            
+                    if keywords and not any(k in col for k in keywords): continue 
                     feature_cols.append(col)
                 
                 merged = merged[cols_to_keep + feature_cols]
@@ -195,82 +182,44 @@ class DataManager:
                 raise ValueError(f"No features found for Task={tasks} and Subset={subset}. Check your keywords!")
 
             if is_train:
-                imputer = KNNImputer(n_neighbors=k_neighbors)
-                features_imp = imputer.fit_transform(features)
-                scaler = StandardScaler()
-                features_scaled = scaler.fit_transform(features_imp)
+                imputer, scaler = KNNImputer(n_neighbors=k_neighbors), StandardScaler()
+                features_scaled = scaler.fit_transform(imputer.fit_transform(features))
                 return features_scaled, labels, r_ids, t_names, imputer, scaler
             else:
-                features_imp = imputer.transform(features)
-                features_scaled = scaler.transform(features_imp)
-                return features_scaled, labels, r_ids, t_names, None, None
+                return scaler.transform(imputer.transform(features)), labels, r_ids, t_names, None, None
 
         X_train, y_train, id_train, t_train, imp, scl = _expand_classic(train_df, True, k_neighbors=k)
         X_test, y_test, id_test, t_test, _, _ = _expand_classic(test_df, False, imputer=imp, scaler=scl)
-        
         return (X_train, y_train, id_train, t_train), (X_test, y_test, id_test, t_test)
     
     def load_paired_embeddings(self, df, wavlm_dir, roberta_dir, tasks):
-        """
-        Loads WavLM AND RoBERTa features. 
-        Only keeps samples where BOTH exist.
-        """
-        X_audio = []
-        X_text = []
-        y = []
-        
-        # Load WavLM first (it's usually the stricter one due to missing files)
-        # We reuse existing logic but customized for intersection
-        
+        X_audio, X_text, y = [], [], []
         for _, row in df.iterrows():
-            record_id = row['record_id']
-            site = row['site']
-            label = row['label_encoded']
-            
+            record_id, site, label = row['record_id'], row['site'], row['label_encoded']
             for task in tasks:
-                # Paths
                 path_wav = Path(wavlm_dir) / site / record_id / f"REDLAT_{record_id}_{task}.npz"
                 path_rob = Path(roberta_dir) / site / record_id / f"REDLAT_{record_id}_{task}.npz"
-                
-                # Check BOTH exist
-                if not path_wav.exists() or not path_rob.exists():
-                    continue # Skip if either is missing
+                if not path_wav.exists() or not path_rob.exists(): continue
                 
                 try:
-                    # Load WavLM
                     data_w = np.load(path_wav)
-                    if 'embeddings' in data_w: emb_w = data_w['embeddings']
-                    else: emb_w = np.stack([data_w[f'layer_{i}'] for i in range(13)])
-                    
-                    # Load RoBERTa
+                    emb_w = data_w['embeddings'] if 'embeddings' in data_w else np.stack([data_w[f'layer_{i}'] for i in range(13)])
                     data_r = np.load(path_rob)
-                    if 'embedding' in data_r: emb_r = data_r['embedding']
-                    else: emb_r = data_r['embeddings']
+                    emb_r = data_r['embedding'] if 'embedding' in data_r else data_r['embeddings']
                     
-                    X_audio.append(emb_w)
-                    X_text.append(emb_r)
-                    y.append(label)
-                    
+                    X_audio.append(emb_w); X_text.append(emb_r); y.append(label)
                 except Exception as e:
                     print(f"Error loading pair for {record_id}: {e}")
-                    
         return np.array(X_audio), np.array(X_text), np.array(y)
     
     def load_dual_classic_features(self, train_df, test_df, csv_path, tasks, k=5):
-        """
-        Loads BOTH audio and language classic features as separate matrices.
-        """
         feat_df = pd.read_csv(csv_path, low_memory=False)
-
-        # Define families (matching your previous setup)
-        AUDIO_KEYS = ['pitch', 'timing', 'talking_intervals', 'jitter', 'shimmer']
-        LANG_KEYS = ['concreteness', 'granularity', 'verbosity', 'OSV', 'lexical', 'semantic']
 
         def _extract_dual(meta_df, is_train, imp_a=None, scl_a=None, imp_l=None, scl_l=None):
             lean_meta = meta_df[['record_id', 'label_encoded']].copy()
             merged = pd.merge(lean_meta, feat_df, on='record_id', how='inner')
             
-            # Filter by task and prefix
+            # --- FIX: Uses Global Keys ---
             cols_a = [c for c in merged.columns if any(k in c for k in AUDIO_KEYS) and any(c.startswith(t) for t in tasks)]
             cols_l = [c for c in merged.columns if any(k in c for k in LANG_KEYS) and any(c.startswith(t) for t in tasks)]
             
@@ -279,20 +228,14 @@ class DataManager:
             labels = merged['label_encoded'].values
 
             if is_train:
-                # Setup Audio Imputer/Scaler
                 imp_a, scl_a = KNNImputer(n_neighbors=k), StandardScaler()
                 X_a = scl_a.fit_transform(imp_a.fit_transform(X_a))
-                # Setup Lang Imputer/Scaler
                 imp_l, scl_l = KNNImputer(n_neighbors=k), StandardScaler()
                 X_l = scl_l.fit_transform(imp_l.fit_transform(X_l))
                 return X_a, X_l, labels, imp_a, scl_a, imp_l, scl_l
             else:
-                X_a = scl_a.transform(imp_a.transform(X_a))
-                X_l = scl_l.transform(imp_l.transform(X_l))
-                return X_a, X_l, labels, None, None, None, None
+                return scl_a.transform(imp_a.transform(X_a)), scl_l.transform(imp_l.transform(X_l)), labels, None, None, None, None
 
-        # Process splits
         X_a_tr, X_l_tr, y_tr, ia, sa, il, sl = _extract_dual(train_df, True)
         X_a_te, X_l_te, y_te, _, _, _, _ = _extract_dual(test_df, False, ia, sa, il, sl)
-
         return (X_a_tr, X_l_tr, y_tr), (X_a_te, X_l_te, y_te)

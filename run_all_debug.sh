@@ -9,9 +9,6 @@ ROBERTA="/home/aleph/redlat/REDLAT_24-09-25_transcriptions_gemini_roberta"
 # Define the sets of tasks to iterate over
 TASK_SETS=(
     "Fugu CraftIm Phonological Phonological2 Semantic Semantic2"
-    "Fugu"
-    "CraftIm"
-    "Phonological Phonological2 Semantic Semantic2"
 )
 
 
@@ -26,7 +23,7 @@ for TASKS in "${TASK_SETS[@]}"; do
     echo "###################################################"
 
     # Loop over the 3 Comparison Pairs
-    for PAIR in "CN AD" "CN FTD" "AD FTD"; do
+    for PAIR in "CN AD"; do
         set -- $PAIR
         G1=$1
         G2=$2

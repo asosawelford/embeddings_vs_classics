@@ -7,7 +7,8 @@ import numpy as np
 class WeightedAverageLayer(nn.Module):
     def __init__(self, num_layers=13):
         super().__init__()
-        self.weights = nn.Parameter(torch.ones(num_layers))
+        # FIX 1: Initialize with zeros to help the optimizer break symmetry
+        self.weights = nn.Parameter(torch.zeros(num_layers))
 
     def forward(self, x):
         # x shape: (Batch, 13, 768)
@@ -44,15 +45,12 @@ class WavLMClassifier(nn.Module):
         pooled_embedding = self.aggregator(x)
         return self.classifier(pooled_embedding)
     
-    # ---------------------------------------------------------
-    # 2. NEW METHOD: Allows us to save weights to CSV
-    # ---------------------------------------------------------
     def get_layer_weights(self):
         """Returns the 13 softmaxed weights as a numpy array."""
         w = F.softmax(self.aggregator.weights, dim=0)
         return w.detach().cpu().numpy()
 
-# --- 4. GATED MULTIMODAL UNIT (CORRECTED "V3") ---
+# --- 4. GATED MULTIMODAL UNIT (ACTUAL V3) ---
 class GMU(nn.Module):
     def __init__(self, dim_audio, dim_text, hidden_dim, dropout=0.2):
         super().__init__()
@@ -63,10 +61,10 @@ class GMU(nn.Module):
         self.ln_audio = nn.LayerNorm(hidden_dim)
         self.ln_text = nn.LayerNorm(hidden_dim)
         
-        self.z_gate = nn.Linear(dim_audio + dim_text, hidden_dim)
-        self.dropout = nn.Dropout(dropout)
+        # FIX 2: Gate input dimension must match the projected hidden states!
+        self.z_gate = nn.Linear(hidden_dim + hidden_dim, hidden_dim)
         
-        # Store the last gate value for logging
+        self.dropout = nn.Dropout(dropout)
         self.last_z_mean = 0.0
 
     def forward(self, audio, text):
@@ -75,7 +73,8 @@ class GMU(nn.Module):
         h_text = torch.tanh(self.ln_text(self.linear_text(text)))
         
         # 2. Calculate Gate
-        combined = torch.cat([audio, text], dim=1)
+        # FIX 2: Concatenate the CLEAN, projected hidden states
+        combined = torch.cat([h_audio, h_text], dim=1)
         z = torch.sigmoid(self.z_gate(combined))
         
         # Save mean gate value for interpretability (how much it trusts audio)
@@ -104,25 +103,29 @@ class FusionClassifier(nn.Module):
         return self.classifier(fused_vector)
 
     def get_layer_weights(self):
-        # Returns WavLM weights (existing logic)
         return F.softmax(self.wavlm_agg.weights, dim=0).detach().cpu().numpy()
 
     def get_gate_value(self):
-        # Returns the mean trust in Audio (0 to 1)
         return self.gmu.last_z_mean
 
 class ClassicFusionClassifier(nn.Module):
     def __init__(self, dim_audio, dim_lang, hidden_dim=128, dropout_rate=0.3):
         super().__init__()
         self.gmu = GMU(dim_audio=dim_audio, dim_text=dim_lang, hidden_dim=hidden_dim, dropout=dropout_rate)
+        
         self.classifier = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim // 2), nn.ReLU(), nn.Dropout(dropout_rate),
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
             nn.Linear(hidden_dim // 2, 1)
         )
+
     def forward(self, x_audio, x_lang):
         fused = self.gmu(x_audio, x_lang)
         return self.classifier(fused)
-    def get_gate_value(self): return self.gmu.last_z_mean
+
+    def get_gate_value(self):
+        return self.gmu.last_z_mean
 
 # --- Factory Function ---
 def get_model(model_type, input_dim=None, hidden_dim=128, dropout=0.3, input_dim_2=None):
